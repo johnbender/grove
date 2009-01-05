@@ -70,3 +70,4 @@ string_response(JSON) ->  {content, ?JSON_MIMETYPE, io_lib:format( ?STRING_ROOT_
 
 %%Generic error response for appmod/yapp/mochiweb use
 error_status() -> ?ERROR_STATUS.
+

@@ -4,49 +4,55 @@
 
 -define(OPERATION, "~s ~s ~s").
 %%may not restrict ( or ) for grove_mysql because of in statement, we will see
--define(OPERAND_RESTRICT_REGEX, "[\|,;:\(\)]|(\.\s)").
+-define(OPERAND_RESTRICT_REGEX, "[\|,;\(\)]|(\.\s)").
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    lt
 %%Description: returns the string of a qualifier for a check of < for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+lt([Left, Right]) ->
+    lt(Left, Right).
 lt(Left, Right) ->
     format_operation("~s < ~s", [Left, Right]).
-
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    lte
 %%Description: returns the string of a qualifier for a check of <= for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+lte([Left, Right]) -> 
+    lte(Left, Right).
 lte(Left, Right) -> 
     format_operation("~s <= ~s", [Left, Right]).
-
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    gt
 %%Description: returns the string of a qualifier for a check of > for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+gt([Left, Right]) -> 
+    gt(Left, Right).
 gt(Left, Right) -> 
     format_operation("~s > ~s", [Left, Right]).
-
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    gte
 %%Description: returns the string of a qualifier for a check of >= for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+gte([Left, Right]) -> 
+    gte(Left, Right).
 gte(Left, Right) -> 
     format_operation("~s >= ~s", [Left, Right]).
-
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    eq
 %%Description: returns the string of a qualifier for a check of == for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+eq([Left, Right]) -> 
+    eq(Left, Right).
 eq(Left, Right) -> 
     format_operation("~s =:= ~s", [Left, Right]).
 
@@ -55,6 +61,8 @@ eq(Left, Right) ->
 %%Description: returns the string of a qualifier for a check of =/= for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
+neq([Left, Right]) ->
+    neq(Left, Right).
 neq(Left, Right) ->
     format_operation("~s =/= ~s", [Left, Right]).
 
@@ -74,7 +82,7 @@ format_operation(Operation, Operands) ->
 validate_operands([]) -> ok;
 validate_operands([Operand|T]) -> 
     case regexp:match(Operand, ?OPERAND_RESTRICT_REGEX) of
-	{match, _, _} -> throw({invalid_operand_characters, Operand ++ " is invalid"});
+	{match, First, Second} -> throw({invalid_operand_characters, Operand, First, Second});
 	nomatch -> validate_operands(T)
     end.
 
@@ -84,14 +92,26 @@ validate_operands([Operand|T]) ->
 %%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
-    %qlc:q([X || X <- mnesia:table(Object), X#Object.id == ID])
     Expresion = format_query({parts, 
 		  {table, Object}, 
 		  {columns, all}, 
-		  {operations, [eq(column(Object, "id"), ID)]}, 
+%		  {operations, []},
+		  {operations, [eq(column(Object, item), ID)]}, 
 		  {order, []}}),
-    FunString = "run_fun() ->" ++ Expresion ++ ".",
-    FunString.
+    FunString = "run_fun() ->  mnesia:transaction(fun() ->" ++ Expresion ++ " end).",
+    io:format(FunString),
+%    ModAtom = list_to_atom("test_add_fun"),
+    Mod = smerl:new(add_fun),
+    {ok, RecAdded} = smerl:add_rec(Mod, "-record(shop, {item, quantity, cost})."),
+    {ok, InclAdded} = smerl:add_incl(RecAdded, "-include_lib(\"stdlib/include/qlc.hrl\")."),
+    {ok, FunAdded} = smerl:add_func(InclAdded, FunString),
+    io:fwrite("~w~n", [FunAdded]),
+    ok = smerl:compile(FunAdded),
+    Result = add_fun:run_fun(),
+    io:fwrite("~w~n", [Result]).
+
+%    smerl:remove_func(Mod, FunString),
+%    Result.
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_query/2
@@ -101,25 +121,26 @@ find(Object, [ID]) ->
 %%-----------------------------------------------------------------------------------------------
 format_query({parts, {table, Name}, Col, Op, Ord}) ->
     ok = validate_operands([Name]),
-    Tab = "X <- mnesia:table(" ++ Name ++ "),",
+    Tab = "X <- mnesia:table(" ++ Name ++ ")",
     format_query({parts, Tab, Col, Op, Ord});
 
 format_query({parts, Tab, {columns, all}, Op, Ord}) ->
     format_query({parts, Tab, "X || ", Op, Ord});
 
 format_query({parts, Tab, {columns, Object, Columns}, Op, Ord}) ->
-    ok = validate_operands([Object|Columns]),
     format_query({parts, Tab, format_columns(Object, Columns), Op, Ord});
 
+format_query({parts, Tab, Col, {operations, []}, Ord}) ->
+    format_query({parts, Tab, Col, " ", Ord});
+
 format_query({parts, Tab, Col, {operations, Ops}, Ord}) ->
-    ok = validate_operands(Ops),
-    format_query({parts, Tab, Col, string:join(Ops, ", "), Ord});
+    format_query({parts, Tab, Col, "," ++ string:join(Ops, ", "), Ord});
 
 format_query({parts, Tab, Col, Op, {order, Ord}}) ->
     format_query({parts, Tab, Col, Op, ""});
 
 %%!!must be last to finalize the formatted query, the ordering might take place
-format_query({parts, Tab, Col, Op, Ord}) -> "qlc:q([" ++ string:join([Col, Tab, Op], " ") ++ "])".
+format_query({parts, Tab, Col, Op, Ord}) -> "qlc:e(qlc:q([" ++ string:join([Col, Tab, Op], " ") ++ "]))".
     
 
 
@@ -138,10 +159,18 @@ format_columns(Object, [Column|T], ColumnList) ->
 		   T, 
 		   [column(Object, Column)|ColumnList]).
 
+
+
 %%-----------------------------------------------------------------------------------------------
 %%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
-%%             Table and Column name
+%%             Record and Field name
 %%-----------------------------------------------------------------------------------------------
-column(Object, Column) -> "X#" ++ Object ++ "." ++ Column.
+column(Record, Field) when is_atom(Field) -> 
+    "X#" ++ Record ++ "." ++ atom_to_list(Field);
+column(Record, Field) ->
+    "X#" ++ Record ++ "." ++ Field.
     
+    
+    
+					   
