@@ -99,20 +99,27 @@ find(Object, [ID]) ->
 		  {operations, [eq(column(Object, item), ID)]}, 
 		  {order, []}}),
     FunString = "run_fun() ->  mnesia:transaction(fun() ->" ++ Expresion ++ " end).",
-    io:format(FunString),
+%    io:format(FunString),
 %    ModAtom = list_to_atom("test_add_fun"),
     Mod = smerl:new(add_fun),
-    {ok, RecAdded} = smerl:add_rec(Mod, "-record(shop, {item, quantity, cost})."),
-    {ok, InclAdded} = smerl:add_incl(RecAdded, "-include_lib(\"stdlib/include/qlc.hrl\")."),
+
+    Attributes = mnesia:table_info(list_to_atom(Object),  attributes),
+    AttrList = lists:map(fun(Attr) -> atom_to_list(Attr) end, Attributes) ,
+    {ok, RecAdded} = smerl:add_rec(Mod, "-record(" 
+                                        ++ 
+                                        string:to_lower(Object) 
+                                        ++ 
+                                        ", {" 
+                                        ++
+                                        string:join(AttrList, ", ")
+                                        ++
+                                        " })."),
+    {ok, InclAdded} = smerl:add_incl(RecAdded, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl", qlc),
     {ok, FunAdded} = smerl:add_func(InclAdded, FunString),
-    io:fwrite("~w~n", [FunAdded]),
+%    io:fwrite("~w~n", [FunAdded]),
     ok = smerl:compile(FunAdded),
-    Result = add_fun:run_fun(),
-    io:fwrite("~w~n", [Result]).
-
-%    smerl:remove_func(Mod, FunString),
-%    Result.
-
+    {atomic, Result} = add_fun:run_fun(),
+    format_json(Result, AttrList).
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_query/2
 %%Description: deals with the query Parts tuple by placing the resulting values for each element
@@ -121,7 +128,7 @@ find(Object, [ID]) ->
 %%-----------------------------------------------------------------------------------------------
 format_query({parts, {table, Name}, Col, Op, Ord}) ->
     ok = validate_operands([Name]),
-    Tab = "X <- mnesia:table(" ++ Name ++ ")",
+    Tab = "X <- mnesia:table(" ++ string:to_lower(Name) ++ ")",
     format_query({parts, Tab, Col, Op, Ord});
 
 format_query({parts, Tab, {columns, all}, Op, Ord}) ->
@@ -152,6 +159,10 @@ format_query({parts, Tab, Col, Op, Ord}) -> "qlc:e(qlc:q([" ++ string:join([Col,
 format_columns(Object, Columns) ->
     format_columns(Object, Columns, "").
 
+%%-----------------------------------------------------------------------------------------------
+%%Function:    format_columns/3
+%%Description: creates the correct string for selecting specific columns in a set comprehension 
+%%-----------------------------------------------------------------------------------------------
 format_columns(_object, [], ColumnList) ->
     "{" ++ string:join(ColumnList, ", ") ++ "} ||";
 format_columns(Object, [Column|T], ColumnList) ->
@@ -171,6 +182,24 @@ column(Record, Field) when is_atom(Field) ->
 column(Record, Field) ->
     "X#" ++ Record ++ "." ++ Field.
     
-    
+format_json(Rows, Attributes) when is_list(Rows), is_list(Attributes) ->
+    format_json(Rows, Attributes, []).
+
+format_json([], _, JSONArray) ->
+    io:fwrite("~w~n", [JSONArray]),
+    mochijson2:encode(JSONArray);
+
+format_json([Row|T], Attributes, JSONArray) when is_tuple(Row)->
+    format_json(T, Attributes, [format_struct(Attributes, tuple_to_list(Row))|JSONArray]).
+
+
+
+format_struct(Attributes, [Table|Values])when is_list(Values), is_list(Attributes) ->
+    format_struct(Attributes, Values, {struct, []}).
+
+format_struct([], [], Struct) -> io:fwrite("~w~n", [Struct]), Struct;
+
+format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
+    format_struct(T, T2, {struct, [{Attr, Val}|KeyValueList]}).
     
 					   

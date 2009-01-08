@@ -109,9 +109,8 @@
 	 extend/4,
 	 to_src/1,
 	 to_src/2,
-	 add_incl/2,
+	 add_incl/3,
 	 add_rec/2,
-	 add_attr/2,
 	 parse_string/1
 	]).
 
@@ -415,21 +414,30 @@ add_func(_, _, _) ->
 %% 	    Err
 %%     end.
 
-add_incl(MetaMod, Incl) -> 
-    add_attr(MetaMod, Incl).
+add_incl(MetaMod, AbsPath, ModuleName) when is_atom(Name), is_list(AbsPath) -> 
+    {ok, CompileAdded} = smerl:add_attr(MetaMod, {attribute,1,compile,{parse_transform, ModuleName}}),
+    Result = smerl:add_attr(CompileAdded, {attribute,1,file,{AbsPath, 1}}),
+    Result.
 
 add_rec(MetaMod, Rec) -> 
-    add_attr(MetaMod, Rec).
+    case parse_string(Rec) of
+	      {ok, Form} -> 
+	          add_attr(MetaMod, Form);
+	      Err ->
+	          Err
+    end;
 
 add_attr(MetaMod, Attr) when is_list(Attr) ->
     case parse_string(Attr) of
-	{ok, Form} -> 
-	    add_attr(MetaMod, Form);
-	Err ->
-	    Err
+	      {ok, Form} -> 
+	          add_attr(MetaMod, Form);
+	      Err ->
+	          Err
     end;
 add_attr(MetaMod, {attribute, _line, _type, _attrtuple} = Form) ->
     {ok, MetaMod#meta_mod{forms = [Form | MetaMod#meta_mod.forms]}}.
+
+
 
 %% form_for_fun(Name, Fun) ->
 %%     Line = 999,
