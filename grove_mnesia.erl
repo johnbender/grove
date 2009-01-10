@@ -1,6 +1,6 @@
 -module(grove_mnesia).
 -compile(export_all).
--behaviour(grove_behaviour).
+%-behaviour(grove_behaviour).
 
 -define(OPERATION, "~s ~s ~s").
 %%may not restrict ( or ) for grove_mysql because of in statement, we will see
@@ -95,7 +95,6 @@ find(Object, [ID]) ->
     Expresion = format_query({parts, 
 		  {table, Object}, 
 		  {columns, all}, 
-%		  {operations, []},
 		  {operations, [eq(column(Object, item), ID)]}, 
 		  {order, []}}),
     FunString = "run_fun() ->  mnesia:transaction(fun() ->" ++ Expresion ++ " end).",
@@ -194,10 +193,10 @@ format_json([Row|T], Attributes, JSONArray) when is_tuple(Row)->
 
 
 
-format_struct(Attributes, [Table|Values])when is_list(Values), is_list(Attributes) ->
+format_struct(Attributes, [_table|Values])when is_list(Values), is_list(Attributes) ->
     format_struct(Attributes, Values, {struct, []}).
 
-format_struct([], [], Struct) -> io:fwrite("~w~n", [Struct]), Struct;
+format_struct([], [], Struct) -> Struct;
 
 format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
     format_struct(T, T2, {struct, [{Attr, Val}|KeyValueList]}).

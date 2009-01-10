@@ -34,7 +34,7 @@ get_query(Object, Action, Params ) ->
     %%-------------------------
     
     Function = list_to_atom(Action),
-    [{exports, Exports}|_t] = Module:module_info(),
+    {value, {exports, Exports}} = lists:keysearch(exports, 1, Module:module_info()),
 
    %make sure the action is implemented, also prevents code injection
     case lists:member({Function, 2}, Exports) of 
