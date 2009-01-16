@@ -5,6 +5,9 @@
 -define(OPERATION, "~s ~s ~s").
 %%may not restrict ( or ) for grove_mysql because of in statement, we will see
 -define(OPERAND_RESTRICT_REGEX, "[\|,;\(\)]|(\.\s)").
+-define(DEFAULT_QLC_LOCATION, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl").
+-define(TEMPORARY_MODULE, add_fun).
+-define(TEMPORARY_FUNCTION, run_fun).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    lt
@@ -92,33 +95,32 @@ validate_operands([Operand|T]) ->
 %%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
-    Expresion = format_query({parts, 
-		  {table, Object}, 
-		  {columns, all}, 
-		  {operations, [eq(column(Object, item), ID)]}, 
-		  {order, []}}),
-    FunString = "run_fun() ->  mnesia:transaction(fun() ->" ++ Expresion ++ " end).",
-%    io:format(FunString),
-%    ModAtom = list_to_atom("test_add_fun"),
-    Mod = smerl:new(add_fun),
+    run_query({parts, 
+		   {table, Object}, 
+		   {columns, all}, 
+		   {operations, [eq(column(Object, item), ID)]}, 
+		   {order, []}}).
+    
 
-    Attributes = mnesia:table_info(list_to_atom(Object),  attributes),
-    AttrList = lists:map(fun(Attr) -> atom_to_list(Attr) end, Attributes) ,
-    {ok, RecAdded} = smerl:add_rec(Mod, "-record(" 
-                                        ++ 
-                                        string:to_lower(Object) 
-                                        ++ 
-                                        ", {" 
-                                        ++
-                                        string:join(AttrList, ", ")
-                                        ++
-                                        " })."),
-    {ok, InclAdded} = smerl:add_incl(RecAdded, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl", qlc),
-    {ok, FunAdded} = smerl:add_func(InclAdded, FunString),
-%    io:fwrite("~w~n", [FunAdded]),
-    ok = smerl:compile(FunAdded),
-    {atomic, Result} = add_fun:run_fun(),
-    format_json(Result, AttrList).
+run_query({parts, {table, Table}, {columns, _columns}, {operations, _ops}, {order, _ord}} = Query) ->
+    Compr = format_query(Query),
+    run_query(Compr, Table).
+
+run_query(Query, Table) when is_list(Query) ->
+    FuncDef = query_func(Query),
+    compile_query(?TEMPORARY_MODULE, FuncDef, Table),
+    
+    {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
+    format_json(Result, Table).
+
+compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
+    AttrList = attribute_names(Table),
+    Mod = smerl:new(ModName),
+    {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
+    {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
+    {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
+    ok = smerl:compile(FuncAdded).
+
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_query/2
 %%Description: deals with the query Parts tuple by placing the resulting values for each element
@@ -126,15 +128,18 @@ find(Object, [ID]) ->
 %%             set comprehension string that constitutes the query from the Parts specified
 %%-----------------------------------------------------------------------------------------------
 format_query({parts, {table, Name}, Col, Op, Ord}) ->
-    ok = validate_operands([Name]),
     Tab = "X <- mnesia:table(" ++ string:to_lower(Name) ++ ")",
     format_query({parts, Tab, Col, Op, Ord});
 
+format_query({parts, Tab, {columns, []}, Op, Ord}) ->
+   format_query({parts, Tab, {columns, all}, Op, Ord}); 
+format_query({parts, Tab, {columns, <<"all">>}, Op, Ord}) ->
+   format_query({parts, Tab, {columns, all}, Op, Ord}); 		    
 format_query({parts, Tab, {columns, all}, Op, Ord}) ->
     format_query({parts, Tab, "X || ", Op, Ord});
 
-format_query({parts, Tab, {columns, Object, Columns}, Op, Ord}) ->
-    format_query({parts, Tab, format_columns(Object, Columns), Op, Ord});
+format_query({parts, Tab, {columns, Columns}, Op, Ord}) ->
+    format_query({parts, Tab, format_columns(Tab, Columns), Op, Ord});
 
 format_query({parts, Tab, Col, {operations, []}, Ord}) ->
     format_query({parts, Tab, Col, " ", Ord});
@@ -146,7 +151,7 @@ format_query({parts, Tab, Col, Op, {order, Ord}}) ->
     format_query({parts, Tab, Col, Op, ""});
 
 %%!!must be last to finalize the formatted query, the ordering might take place
-format_query({parts, Tab, Col, Op, Ord}) -> "qlc:e(qlc:q([" ++ string:join([Col, Tab, Op], " ") ++ "]))".
+format_query({parts, Tab, Col, Op, Ord}) -> "[" ++ string:join([Col, Tab, Op], " ") ++ "]".
     
 
 
@@ -169,8 +174,6 @@ format_columns(Object, [Column|T], ColumnList) ->
 		   T, 
 		   [column(Object, Column)|ColumnList]).
 
-
-
 %%-----------------------------------------------------------------------------------------------
 %%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
@@ -180,19 +183,36 @@ column(Record, Field) when is_atom(Field) ->
     "X#" ++ Record ++ "." ++ atom_to_list(Field);
 column(Record, Field) ->
     "X#" ++ Record ++ "." ++ Field.
-    
-format_json(Rows, Attributes) when is_list(Rows), is_list(Attributes) ->
+
+%%-----------------------------------------------------------------------------------------------
+%%Function:    format_json/2
+%%Description: Formats a mnesia query result in to a json array of objects. for example the table 
+%%             defined by the record
+%%
+%%             -record({shop, {item, quantity, cost}) 
+%%
+%%             would have a JSON result something like
+%%              
+%%             [{"cost":2.3,"quantity":20,"item":"apple"}, {"cost":2.0,"quantity":10,"item":"orange"}]
+%%        
+%%             **Currently its only been tested with key/value pairs, where value is a string or 
+%%             a number. 
+%%-----------------------------------------------------------------------------------------------
+format_json(Rows, Table) when is_list(Rows), is_list(Table) ->
+    Attributes = attribute_names(Table),
     format_json(Rows, Attributes, []).
 
 format_json([], _, JSONArray) ->
-    io:fwrite("~w~n", [JSONArray]),
     mochijson2:encode(JSONArray);
 
 format_json([Row|T], Attributes, JSONArray) when is_tuple(Row)->
     format_json(T, Attributes, [format_struct(Attributes, tuple_to_list(Row))|JSONArray]).
 
-
-
+%%-----------------------------------------------------------------------------------------------
+%%Function:    format_struct/2
+%%Description: Turns a row set result from mnesia into part of the result struct that mochijson2
+%%             can format
+%%-----------------------------------------------------------------------------------------------
 format_struct(Attributes, [_table|Values])when is_list(Values), is_list(Attributes) ->
     format_struct(Attributes, Values, {struct, []}).
 
@@ -200,5 +220,37 @@ format_struct([], [], Struct) -> Struct;
 
 format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
     format_struct(T, T2, {struct, [{Attr, Val}|KeyValueList]}).
-    
-					   
+
+
+%%TODO either alter mochijson to handle abitrarily complex values from mnesia or handle it here
+
+attribute_names(Table) when is_list(Table) ->
+    attribute_names(list_to_atom(Table));
+
+attribute_names(Table) when is_atom(Table) ->
+    Attributes = mnesia:table_info(Table,  attributes),
+    lists:map(fun(Attr) -> atom_to_list(Attr) end, Attributes).
+		
+record(Table, AttrList) when is_atom(Table) ->
+    record(atom_to_list(Table), AttrList);
+record(Table, AttrList) when is_list(AttrList) ->
+    "-record(" ++ string:to_lower(Table)  ++", {" ++ string:join(AttrList, ", ") ++ " }).".
+
+%%-----------------------------------------------------------------------------------------------
+%%Function:    query_func/1
+%%Description: returns the function code to execute the list comprehension query, without order
+%%-----------------------------------------------------------------------------------------------
+query_func(Comprehension) ->
+     atom_to_list(?TEMPORARY_FUNCTION) 
+	++ "() ->  mnesia:transaction(fun() ->qlc:e(qlc:q(" 
+	++ Comprehension 
+	++ ")) end).".
+
+%%-----------------------------------------------------------------------------------------------
+%%Function:    object_exists/1
+%%Description: Checks to see if the table is present in mnesia
+%%-----------------------------------------------------------------------------------------------
+object_exists(Table) when is_list(Table) ->
+    object_exists(list_to_atom(Table));
+object_exists(Table) when is_atom(Table) ->
+    lists:member(Table, mnesia:system_info(tables)).

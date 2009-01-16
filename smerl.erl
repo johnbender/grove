@@ -414,7 +414,7 @@ add_func(_, _, _) ->
 %% 	    Err
 %%     end.
 
-add_incl(MetaMod, AbsPath, ModuleName) when is_atom(Name), is_list(AbsPath) -> 
+add_incl(MetaMod, AbsPath, ModuleName) when is_atom(ModuleName), is_list(AbsPath) -> 
     {ok, CompileAdded} = smerl:add_attr(MetaMod, {attribute,1,compile,{parse_transform, ModuleName}}),
     Result = smerl:add_attr(CompileAdded, {attribute,1,file,{AbsPath, 1}}),
     Result.
@@ -425,7 +425,7 @@ add_rec(MetaMod, Rec) ->
 	          add_attr(MetaMod, Form);
 	      Err ->
 	          Err
-    end;
+    end.
 
 add_attr(MetaMod, Attr) when is_list(Attr) ->
     case parse_string(Attr) of
