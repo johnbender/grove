@@ -118,6 +118,7 @@ compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
     Mod = smerl:new(ModName),
     {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
+    io:format("~s", [FuncDef]),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
     ok = smerl:compile(FuncAdded).
 
@@ -127,33 +128,41 @@ compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
 %%             into the same position in the tuple and passing it on. Finally it returns the 
 %%             set comprehension string that constitutes the query from the Parts specified
 %%-----------------------------------------------------------------------------------------------
+
+format_query({parts, Table, {columns, []}, Op, Ord}) ->
+   format_query({parts, Table, {columns, all}, Op, Ord}); 
+format_query({parts, Table, {columns, <<"all">>}, Op, Ord}) ->
+   format_query({parts, Table, {columns, all}, Op, Ord}); 		    
+format_query({parts, {table, Name}, {columns, all}, Op, Ord}) ->
+    format_query({parts, {table, Name}, initcap(Name) ++ " || ", Op, Ord});
+
+format_query({parts, {table, Name}, {columns, Columns}, Op, Ord}) ->
+    format_query({parts, {table, Name}, format_columns(Name, Columns), Op, Ord});
+
+format_query({parts, Table, Col, {operations, []}, Ord}) ->
+    format_query({parts, Table, Col, " ", Ord});
+
+%%the JSON will be translated into a list of structs that will be handled here
+format_query({parts, {table, Name}, Col, {operations, [{struct, _firstop}|_t] = Ops}, Ord}) ->
+    format_query({parts, {table, Name}, Col, "," ++ format_ops(Name, Ops), Ord});
+
+%%handles operations added by erlang coded queries
+format_query({parts, {table, Name}, Col, {operations, Ops}, Ord}) ->
+    format_query({parts, {table, Name}, Col, "," ++ string:join(Ops, ", "), Ord});
+
 format_query({parts, {table, Name}, Col, Op, Ord}) ->
-    Tab = "X <- mnesia:table(" ++ string:to_lower(Name) ++ ")",
+    Tab = initcap(Name) ++ " <- mnesia:table(" ++ string:to_lower(Name) ++ ")",
     format_query({parts, Tab, Col, Op, Ord});
 
-format_query({parts, Tab, {columns, []}, Op, Ord}) ->
-   format_query({parts, Tab, {columns, all}, Op, Ord}); 
-format_query({parts, Tab, {columns, <<"all">>}, Op, Ord}) ->
-   format_query({parts, Tab, {columns, all}, Op, Ord}); 		    
-format_query({parts, Tab, {columns, all}, Op, Ord}) ->
-    format_query({parts, Tab, "X || ", Op, Ord});
-
-format_query({parts, Tab, {columns, Columns}, Op, Ord}) ->
-    format_query({parts, Tab, format_columns(Tab, Columns), Op, Ord});
-
-format_query({parts, Tab, Col, {operations, []}, Ord}) ->
-    format_query({parts, Tab, Col, " ", Ord});
-
-format_query({parts, Tab, Col, {operations, Ops}, Ord}) ->
-    format_query({parts, Tab, Col, "," ++ string:join(Ops, ", "), Ord});
-
-format_query({parts, Tab, Col, Op, {order, Ord}}) ->
-    format_query({parts, Tab, Col, Op, ""});
+format_query({parts, Table, Col, Op, {order, Ord}}) ->
+    format_query({parts, Table, Col, Op, ""});
 
 %%!!must be last to finalize the formatted query, the ordering might take place
-format_query({parts, Tab, Col, Op, Ord}) -> "[" ++ string:join([Col, Tab, Op], " ") ++ "]".
+format_query({parts, Table, Col, Op, Ord}) -> "[" ++ string:join([Col, Table, Op], " ") ++ "]".
     
 
+format_ops(Object, Ops) ->
+    " ".
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_columns/2
@@ -167,8 +176,11 @@ format_columns(Object, Columns) ->
 %%Function:    format_columns/3
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
+
 format_columns(_object, [], ColumnList) ->
     "{" ++ string:join(ColumnList, ", ") ++ "} ||";
+format_columns(Object, [<<Column>>|T], ColumnList) ->
+    format_columns(Object, [Column|T], ColumnList);
 format_columns(Object, [Column|T], ColumnList) ->
     format_columns(Object, 
 		   T, 
@@ -180,9 +192,9 @@ format_columns(Object, [Column|T], ColumnList) ->
 %%             Record and Field name
 %%-----------------------------------------------------------------------------------------------
 column(Record, Field) when is_atom(Field) -> 
-    "X#" ++ Record ++ "." ++ atom_to_list(Field);
+    column(Record, atom_to_list(Field));
 column(Record, Field) ->
-    "X#" ++ Record ++ "." ++ Field.
+    initcap(Record) ++ "#" ++ Record ++ "." ++ Field.
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_json/2
@@ -253,4 +265,14 @@ query_func(Comprehension) ->
 object_exists(Table) when is_list(Table) ->
     object_exists(list_to_atom(Table));
 object_exists(Table) when is_atom(Table) ->
-    lists:member(Table, mnesia:system_info(tables)).
+%    case lists:member(Table, mnesia:system_info(tables)) of
+%	{aborted, Something} ->
+%	    io:format("test")
+%    end.
+    try lists:member(Table, mnesia:system_info(tables))
+    catch 
+        exit : _reason -> false
+    end.
+
+initcap([First|T]) ->
+    [string:to_upper(First)|T].
