@@ -75,7 +75,19 @@ neq(Left, Right) ->
 %%-----------------------------------------------------------------------------------------------
 format_operation(Operation, Operands) ->
     ok = validate_operands(Operands),
-    lists:flatten(io_lib:format(Operation, Operands)).
+    lists:flatten(io_lib:format(Operation, all_strings(Operands))).
+
+all_strings(Objects) ->
+    all_strings(Objects, []).
+
+all_strings([], Result) ->
+    Result;
+all_strings([Object|T], Result) when is_number(Object) ->
+    all_strings(T, [Result|io_lib:format("~w", [Object])]);
+all_strings([Object|T], Result) when is_binary(Object) ->
+    all_strings(T, [Result|binary_to_list(Object)]);
+all_strings([Object|T], Result) when is_list(Object) ->
+    all_strings(T, [Result|Object]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    validate_operands
@@ -83,6 +95,8 @@ format_operation(Operation, Operands) ->
 %%             possible less than mysql (ie " in (value1, value2) " )
 %%-----------------------------------------------------------------------------------------------
 validate_operands([]) -> ok;
+validate_operands([Operand|T]) when is_number(Operand) ->
+    validate_operands(T);
 validate_operands([Operand|T]) -> 
     case regexp:match(Operand, ?OPERAND_RESTRICT_REGEX) of
 	{match, First, Second} -> throw({invalid_operand_characters, Operand, First, Second});
@@ -95,12 +109,12 @@ validate_operands([Operand|T]) ->
 %%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
-    run_query({parts, 
+    Result = run_query({parts, 
 		   {table, Object}, 
 		   {columns, all}, 
 		   {operations, [eq(column(Object, item), ID)]}, 
-		   {order, []}}).
-    
+		   {order, []}}),
+    format_json(Result, Object, all).
 
 run_query({parts, {table, Table}, {columns, _columns}, {operations, _ops}, {order, _ord}} = Query) ->
     Compr = format_query(Query),
@@ -109,16 +123,14 @@ run_query({parts, {table, Table}, {columns, _columns}, {operations, _ops}, {orde
 run_query(Query, Table) when is_list(Query) ->
     FuncDef = query_func(Query),
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
-    
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
-    format_json(Result, Table).
+    Result.
 
 compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
     AttrList = attribute_names(Table),
     Mod = smerl:new(ModName),
     {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
-    io:format("~s", [FuncDef]),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
     ok = smerl:compile(FuncAdded).
 
@@ -129,30 +141,18 @@ compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
 %%             set comprehension string that constitutes the query from the Parts specified
 %%-----------------------------------------------------------------------------------------------
 
-format_query({parts, Table, {columns, []}, Op, Ord}) ->
-   format_query({parts, Table, {columns, all}, Op, Ord}); 
-format_query({parts, Table, {columns, <<"all">>}, Op, Ord}) ->
-   format_query({parts, Table, {columns, all}, Op, Ord}); 		    
-format_query({parts, {table, Name}, {columns, all}, Op, Ord}) ->
-    format_query({parts, {table, Name}, initcap(Name) ++ " || ", Op, Ord});
-
+%%an empty set or the atom all in conjunction with the columns produce the same result		    
 format_query({parts, {table, Name}, {columns, Columns}, Op, Ord}) ->
-    format_query({parts, {table, Name}, format_columns(Name, Columns), Op, Ord});
+    ColStr = format_columns(Name, Columns),
+    format_query({parts, {table, Name}, ColStr, Op, Ord});
 
-format_query({parts, Table, Col, {operations, []}, Ord}) ->
-    format_query({parts, Table, Col, " ", Ord});
-
-%%the JSON will be translated into a list of structs that will be handled here
-format_query({parts, {table, Name}, Col, {operations, [{struct, _firstop}|_t] = Ops}, Ord}) ->
-    format_query({parts, {table, Name}, Col, "," ++ format_ops(Name, Ops), Ord});
-
-%%handles operations added by erlang coded queries
 format_query({parts, {table, Name}, Col, {operations, Ops}, Ord}) ->
-    format_query({parts, {table, Name}, Col, "," ++ string:join(Ops, ", "), Ord});
+    OpStr = format_operations(Name, Ops),
+    format_query({parts, {table, Name}, Col, OpStr, Ord});
 
 format_query({parts, {table, Name}, Col, Op, Ord}) ->
-    Tab = initcap(Name) ++ " <- mnesia:table(" ++ string:to_lower(Name) ++ ")",
-    format_query({parts, Tab, Col, Op, Ord});
+    TableGen = format_generator(Name),
+    format_query({parts, TableGen, Col, Op, Ord});
 
 format_query({parts, Table, Col, Op, {order, Ord}}) ->
     format_query({parts, Table, Col, Op, ""});
@@ -161,40 +161,66 @@ format_query({parts, Table, Col, Op, {order, Ord}}) ->
 format_query({parts, Table, Col, Op, Ord}) -> "[" ++ string:join([Col, Table, Op], " ") ++ "]".
     
 
-format_ops(Object, Ops) ->
-    " ".
+format_generator(Table) ->
+    initcap(Table) ++ " <- mnesia:table(" ++ string:to_lower(Table) ++ ")".
+
+format_operations(Table, []) ->
+   format_operations(Table, none);
+format_operations(Table, none) ->
+    " ";
+format_operations(Table, [{struct, Operation}|T] = OpList) ->
+    format_operations(Table, OpList, []);
+format_operations(Table, OpStrList) when is_list(OpStrList) ->
+    ", " ++ string:join(OpStrList, ", ").
+
+format_operations(Table, [], Ops) ->
+    string:join(Ops, ", ");
+%                        [{struct, [{<<"eq">>, {struct, [{<<"cost">>, 2.3}]}}]}]
+format_operations(Table, [{struct, [{Op  , {struct, [{LOp       , ROp}]}}]}|T], Ops) ->
+    Operation = list_to_atom(binary_to_list(Op)),
+    OpStr = ?MODULE:Operation(format_operand(Table, LOp), format_operand(Table, ROp)),
+    format_operations(Table, T, [Ops|[OpStr]]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_columns/2
 %%Description: Returns the columns list string necessary for limiting those columns in an mnesia
-%%             query string
+%%             query string, the atom all produces "Table ||" 
 %%-----------------------------------------------------------------------------------------------
-format_columns(Object, Columns) ->
-    format_columns(Object, Columns, "").
+
+format_columns(Table, []) ->
+   format_columns(Table, all);
+format_columns(Table, <<"all">>) ->
+   format_columns(Table, all); 
+format_columns(Table, all) ->
+    initcap(Table) ++ " || ";
+format_columns(Table, Columns) when is_list(Columns) ->
+    format_columns(Table, Columns, "").
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_columns/3
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
 
-format_columns(_object, [], ColumnList) ->
+format_columns(_table, [], ColumnList) ->
     "{" ++ string:join(ColumnList, ", ") ++ "} ||";
-format_columns(Object, [<<Column>>|T], ColumnList) ->
-    format_columns(Object, [Column|T], ColumnList);
-format_columns(Object, [Column|T], ColumnList) ->
-    format_columns(Object, 
+format_columns(Table, [<<Column>>|T], ColumnList) ->
+    format_columns(Table, [Column|T], ColumnList);
+format_columns(Table, [Column|T], ColumnList) ->
+    format_columns(Table, 
 		   T, 
-		   [column(Object, Column)|ColumnList]).
+		   [column(Table, Column)|ColumnList]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
 %%             Record and Field name
 %%-----------------------------------------------------------------------------------------------
-column(Record, Field) when is_atom(Field) -> 
-    column(Record, atom_to_list(Field));
-column(Record, Field) ->
-    initcap(Record) ++ "#" ++ Record ++ "." ++ Field.
+column(Table, Name) when is_binary(Name) ->
+    column(Table, binary_to_list(Name));
+column(Table, Name) when is_atom(Name) -> 
+    column(Table, atom_to_list(Name));
+column(Table, Name) ->
+    initcap(Table) ++ "#" ++ string:to_lower(Table) ++ "." ++ string:to_lower(Name).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_json/2
@@ -210,14 +236,25 @@ column(Record, Field) ->
 %%             **Currently its only been tested with key/value pairs, where value is a string or 
 %%             a number. 
 %%-----------------------------------------------------------------------------------------------
-format_json(Rows, Table) when is_list(Rows), is_list(Table) ->
+ 
+format_json(Rows, Table, []) ->
+    format_json(Rows, Table, all);
+format_json(Rows, Table, <<"all">>) ->
+    format_json(Rows, Table, all);
+format_json(Rows, Table, all) when is_list(Rows), is_list(Table) ->
+    io:format("~p", [Rows, Table, all]),
     Attributes = attribute_names(Table),
-    format_json(Rows, Attributes, []).
+    format_json(Rows, Attributes, []);
+format_json(Rows, Table, Columns) when is_list(Rows), is_list(Table) ->
+    io:format("~p", [Rows]),
+    format_json(Rows, Table, Columns, []).
 
-format_json([], _, JSONArray) ->
+format_json([], _, _, JSONArray) ->
     mochijson2:encode(JSONArray);
 
-format_json([Row|T], Attributes, JSONArray) when is_tuple(Row)->
+format_json([Row|T], _ ,Attributes, JSONArray) when is_tuple(Row)->
+
+    io:format("~p", [Row]),
     format_json(T, Attributes, [format_struct(Attributes, tuple_to_list(Row))|JSONArray]).
 
 %%-----------------------------------------------------------------------------------------------
@@ -226,9 +263,14 @@ format_json([Row|T], Attributes, JSONArray) when is_tuple(Row)->
 %%             can format
 %%-----------------------------------------------------------------------------------------------
 format_struct(Attributes, [_table|Values])when is_list(Values), is_list(Attributes) ->
+    
+    io:format("~p", [Values]),
     format_struct(Attributes, Values, {struct, []}).
 
 format_struct([], [], Struct) -> Struct;
+
+format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) when is_binary(Attr)->
+    format_struct(T, T2, {struct, [{string:to_lower(binary_to_list(Attr)), Val}|KeyValueList]});
 
 format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
     format_struct(T, T2, {struct, [{Attr, Val}|KeyValueList]}).
@@ -263,16 +305,25 @@ query_func(Comprehension) ->
 %%Description: Checks to see if the table is present in mnesia
 %%-----------------------------------------------------------------------------------------------
 object_exists(Table) when is_list(Table) ->
-    object_exists(list_to_atom(Table));
+    object_exists(list_to_atom(string:to_lower(Table)));
 object_exists(Table) when is_atom(Table) ->
-%    case lists:member(Table, mnesia:system_info(tables)) of
-%	{aborted, Something} ->
-%	    io:format("test")
-%    end.
     try lists:member(Table, mnesia:system_info(tables))
     catch 
         exit : _reason -> false
     end.
 
 initcap([First|T]) ->
-    [string:to_upper(First)|T].
+    [string:to_upper(First)|string:to_lower(T)].
+
+
+format_operand(Table, Op) when is_number(Op) ->
+    Op;
+format_operand(Table, Op) when is_binary(Op) ->
+    format_operand(Table, binary_to_list(Op));
+format_operand(Table, Op) when is_list(Op) ->
+    Attr = attribute_names(Table),
+    case lists:member(string:to_lower(Op), Attr) of
+	true -> column(Table, Op);
+	false -> Op
+    end.
+    

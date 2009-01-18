@@ -59,21 +59,19 @@ post_query(Object, JSON) ->
 	{true, {struct,[{<<"query">>,
 			 [{struct,[{<<"columns">>,Columns}]},
 			  {struct,[{<<"operations">>, Ops}]},
-			  {struct,[{<<"order">>, Ord}]}]}]} } -> 
-	    json_response(Module:run_query({parts, 
+			  {struct,[{<<"order">>, Ord}]}]}]} } ->
+	    Result = Module:run_query({parts, 
 					    {table, Object}, 
 					    {columns, Columns}, 
 					    {operations, Ops}, 
-					    {order, Ord}})); 
+					    {order, Ord}}),
+	    json_response(Module:format_json(Result, Object, Columns));
 	{true, _other} -> string_response("Your JSON must take the format: " ++
 				  "{\"query\" : " ++ 
 				  "{\"columns\" : []}," ++ 
 				  "{\"operations\" :  [] }," ++ 
 				  "{\"order\": [] }] }")
     end.
-
-	    
-	    
 
 
 
