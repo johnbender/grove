@@ -1,11 +1,12 @@
-MODULES   = grove grove_appmod grove_util grove_mnesia smerl 
+MODULES   = grove grove_appmod grove_util grove_mnesia smerl test_grove
 
 BEAMS     = $(MODULES:%=%.beam)
 
 BINDIR    = ebin
 SRCDIR    = src
 INCDIR    = include
-VPATH     = $(BINDIR):$(SRCDIR):$(INCDIR)
+TESTDIR 	= test
+VPATH     = $(BINDIR):$(SRCDIR):$(INCDIR):$(TESTDIR)
 
 ERL       = erl
 ERLC      = erlc
@@ -14,7 +15,7 @@ ERLCFLAGS = -W -smp
 all: $(BEAMS)
 
 %.beam: %.erl
-		$(ERLC) -b beam $(ERLCFLAGS) -I $(INCDIR) -o $(BINDIR) $< 
-	
+		$(ERLC) -b beam $(ERLCFLAGS) -I $(INCDIR) -o $(BINDIR) $<
+
 clean:
-		rm -rf $(BINDIR)/*.beam		
+		rm -rf $(BINDIR)/*.beam		s
