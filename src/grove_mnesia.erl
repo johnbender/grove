@@ -1,6 +1,8 @@
 -module(grove_mnesia).
--compile(export_all).
 %-behaviour(grove_behaviour).
+
+-include_lib("eunit/include/eunit.hrl").
+-define(NOTEST, true).
 
 -define(OPERATION, "~s ~s ~s").
 %%may not restrict ( or ) for grove_mysql because of in statement, we will see
@@ -57,7 +59,7 @@ gte(Left, Right) ->
 eq([Left, Right]) -> 
     eq(Left, Right).
 eq(Left, Right) -> 
-    format_operation("~s =:= ~s", [Left, Right]).
+    format_operation("~s == ~s", [Left, Right]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    neq
@@ -99,7 +101,6 @@ run_query({parts, {table, Table}, {columns, Columns}, {operations, Ops}, {order,
 
 run_query(Query, Table, Ord) when is_list(Query) ->
     FuncDef = query_func(Query, Ord),
-    io:format("~p", [FuncDef]),
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
     Result.
@@ -259,8 +260,10 @@ record(Table, AttrList) when is_list(AttrList) ->
     "-record(" ++ string:to_lower(Table)  ++", {" ++ string:join(AttrList, ", ") ++ " }).".
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    query_func/1
+%%Function:    query_func/2
 %%Description: returns the function code to execute the list comprehension query, without order
+%%             hard not to feel like this is really hackish. Need to implement string_format in 
+%%             grove util
 %%-----------------------------------------------------------------------------------------------
 query_func(Comprehension, Ord) ->
     [QlcSort, SortOrder] = case Ord of
@@ -273,11 +276,11 @@ query_func(Comprehension, Ord) ->
 
     atom_to_list(?TEMPORARY_FUNCTION) 
 	++ "() ->  mnesia:transaction(fun() ->qlc:e(" 
-	++ QlcSort
+	++ QlcSort %% begin wrapping query in sort
 	++ "qlc:q(" 
 	++ Comprehension 
 	++ ")"
-	++ SortOrder
+	++ SortOrder %% end wrapping query in sort
 	++ ") end).".
 
 
@@ -302,5 +305,31 @@ format_operand(Table, Op) ->
 	false -> Operand
     end.
 
+code_injection_test() ->    
+    ?_assertException(throw, invalid_operand_characters, lt(";", 2)),
+    ?_assertException(throw, invalid_operand_characters, lt("endofworld()", 2)).
+    %need much more clever tests here
 
+lt_test() ->
+    "1 < 2" = lt(1, 2),
+    "Shop < 20" = lt("Shop", 20).
 
+lte_test() ->
+    "1 <= 2" =  lte(1, 2),
+    "Shop <= 20" =  lte("Shop", 20).
+
+gt_test() ->
+    "1 > 2" =  gt(1, 2),
+    "Shop > 20" =  gt("Shop", 20).
+
+gte_test() ->
+    "1 >= 2" =  gte(1, 2),
+    "Shop >= 20" =  gte("Shop", 20).
+
+eq_test() ->
+    "1 == 2" =  eq(1, 2),
+    "Shop == 20" =  eq("Shop", 20).
+
+neq_test() ->
+    "1 =/= 2" =  neq(1, 2),
+    "Shop =/= 20" =  neq("Shop", 20).
