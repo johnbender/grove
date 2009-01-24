@@ -53,8 +53,14 @@ post_query(Object, JSON) ->
 
     %%TEMPORARY, todo get from config file
     Module = list_to_atom("grove_mnesia"),
-    
-    case {Module:object_exists(Object), mochijson2:decode(JSON)} of
+
+    Decoded = try mochijson2:decode(JSON)
+	      catch 
+		  error : _ -> invalid_json()
+	      end,
+    Exists = Module:object_exists(Object),
+
+    case {Exists, Decoded} of
 	{false, _} -> string_response(Object ++ ?OBJECT_NOT_AVAILABLE);
 	{true, {struct,[{<<"query">>,
 			 [{struct,[{<<"columns">>,Columns}]},
@@ -66,20 +72,8 @@ post_query(Object, JSON) ->
 					    {operations, Ops}, 
 					    {order, Ord}}),
 	    json_response(Module:format_json(Result, Object, Columns));
-	{true, _other} -> string_response("Your JSON must take the format: " ++
-				  "{\"query\" : " ++ 
-				  "{\"columns\" : []}," ++ 
-				  "{\"operations\" :  [] }," ++ 
-				  "{\"order\": [] }] }")
+	{true, _other} -> invalid_json() 
     end.
-
-
-
-%%direct_query(Object, Action, Params)
-%% for direct integration with rails as a backend/data services (do authentication necessary actions through rails)
-
-%%set_response(Set)
-%% return a tuple {set, Set} so that rails can turn them into objects
 
 %%-----------------------------------------------------------------------------------------------
 %% Function:    content
@@ -97,3 +91,9 @@ string_response(JSON) ->  {content, ?JSON_MIMETYPE, io_lib:format( ?STRING_ROOT_
 %%Generic error response for appmod/yapp/mochiweb use
 error_status() -> ?ERROR_STATUS.
 
+invalid_json() ->
+     string_response("Invalid JSON String. Your JSON must take the format: " ++
+				  "{\"query\" : " ++ 
+				  "{\"columns\" : []}," ++ 
+				  "{\"operations\" :  [] }," ++ 
+				  "{\"order\": [] }] }").

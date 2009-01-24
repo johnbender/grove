@@ -6,7 +6,7 @@ initcap([First|T]) ->
     [string:to_upper(First)|string:to_lower(T)].
 
 to_string(Object) when is_number(Object) ->
-    io_lib:format("~w" , [Object]);
+    lists:flatten(io_lib:format("~w" , [Object]));
 to_string(Object) when is_atom(Object) ->
     atom_to_list(Object); 
 to_string(Object) when is_binary(Object) ->
