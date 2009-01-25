@@ -3,7 +3,8 @@
 -export([object_exists/1, 
 	 run_query/1, 
 	 run_query/3,
-	 format_json/3
+	 format_json/3,
+	 column/2
 	]).
 
 -define(NOTEST, 1).
@@ -19,6 +20,7 @@ run_query({parts, {table, Table}, {columns, Columns}, {operations, Ops}, {order,
 
 run_query(Query, Table, Ord) when is_list(Query) ->
     FuncDef = query_func(Query, Ord),
+    io:format("~s", [FuncDef]),
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
     Result.
@@ -53,12 +55,34 @@ format_query({parts, {table, Name}, Col, Ops}) ->
 
 %%!!must be last to finalize the formatted comprehension
 format_query({parts, Table, Col, Ops}) -> 
-    "[" ++ string:join([Col, Table, Ops], " ") ++ "]".
-    
+    grove_util:string_format("[ ~s , ~s, ~s ]",
+			     [Col,
+			      Table,
+			      Ops]).
+
+%%-----------------------------------------------------------------------------------------------
+%%Function:    format_generator/2
+%%Description: builds the generator for the comprehension. The variable is the table name as a 
+%%             standard. 
+%%-----------------------------------------------------------------------------------------------
 format_generator(Table) ->
-    grove_util:initcap(Table) ++ " <- mnesia:table(" ++ string:to_lower(Table) ++ ") ".
+    grove_util:string_format("~s <- mnesia:table(~s) ",
+			     [grove_util:initcap(Table),
+			      string:to_lower(Table)]).
 
-
+%%-----------------------------------------------------------------------------------------------
+%%Function:    format_operations/2
+%%Description: format operations handles the comparison operations in the comprehension for example
+%%             code: eq(column(table, column1), 3.5) => Table#table.column1 =:= 3.5
+%%             json: {"operations" :  [  {"eq" : {"column1" : 2.3 }}]} => Table#table.column1 =:= 2.3
+%%             its important to note that if the 2.3 in the JSON example were changed to a string that 
+%%             matches a column in the table being queried it will transform it into column syntax
+%%             to allow column to column comparisons within a single table
+%%            
+%%             if you want to force a string use the following:
+%%             {"operations" :  [  {"eq" : {"column1" : { "string" : "column2" } }}]} =>
+%%             Table#table.column1 =:= "column2" 
+%%-----------------------------------------------------------------------------------------------
 format_operations(Table, none) ->
     format_operations(Table, []);
 format_operations(_table, []) -> [];
@@ -94,7 +118,9 @@ format_columns(Table, Columns) when is_list(Columns) ->
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
 format_columns(Table, [], ColumnList) ->
-    "{ " ++ string:to_lower(Table) ++ " ,  " ++ string:join(ColumnList, ", ") ++ "} ||";
+    grove_util:string_format("{ ~s , ~s } || ", 
+			     [string:to_lower(Table),
+			      string:join(ColumnList, ", ")]);
 format_columns(Table, [<<Column>>|T], ColumnList) ->
     format_columns(Table, [Column|T], ColumnList);
 format_columns(Table, [Column|T], ColumnList) ->
@@ -105,15 +131,17 @@ format_columns(Table, [Column|T], ColumnList) ->
 %%-----------------------------------------------------------------------------------------------
 %%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
-%%             Record and Field name
+%%             Record and Field name. 
 %%-----------------------------------------------------------------------------------------------
 column(Table, Name) when is_binary(Name) ->
     column(Table, binary_to_list(Name));
 column(Table, Name) when is_atom(Name) -> 
     column(Table, atom_to_list(Name));
 column(Table, Name) ->
-    grove_util:initcap(Table) ++ "#" ++ string:to_lower(Table) ++ "." ++ string:to_lower(Name).
-
+    grove_util:string_format("~s#~s.~s",
+			     [grove_util:initcap(Table), 
+			      string:to_lower(Table), 
+			      string:to_lower(Name)]).
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_json/2
 %%Description: Formats a mnesia query result in to a json array of objects. for example the table 
@@ -173,34 +201,25 @@ attribute_names(Table) when is_atom(Table) ->
 record(Table, AttrList) when is_atom(Table) ->
     record(atom_to_list(Table), AttrList);
 record(Table, AttrList) when is_list(AttrList) ->
-    "-record(" ++ string:to_lower(Table)  ++", {" ++ string:join(AttrList, ", ") ++ " }).".
+    grove_util:string_format("-record( ~s , { ~s }).", 
+			     [string:to_lower(Table), 
+			      string:join(AttrList, ", ")]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    query_func/2
 %%Description: returns the function code to execute the list comprehension query, without order
 %%             hard not to feel like this is really hackish. Need to implement string_format in 
 %%             grove util. 
-%%
-%%             every time I scroll past this I want to puke
 %%-----------------------------------------------------------------------------------------------
+query_func(Comprehension, []) ->
+    grove_util:string_format("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:q( ~s ) ) end).",
+			     [grove_util:to_string(?TEMPORARY_FUNCTION), 
+			      Comprehension]);
 query_func(Comprehension, Ord) ->
-    [QlcSort, SortOrder] = case Ord of
-			   [] -> [" ", " "];
-			   _other -> ["qlc:sort(", 
-				      ", {order, "
-				      ++ string:to_lower(grove_util:to_string(Ord))
-				      ++ "})"]
-		       end,
-
-    atom_to_list(?TEMPORARY_FUNCTION) 
-	++ "() ->  mnesia:transaction(fun() ->qlc:e(" 
-	++ QlcSort %% begin wrapping query in sort
-	++ "qlc:q(" 
-	++ Comprehension 
-	++ ")"
-	++ SortOrder %% end wrapping query in sort
-	++ ") end).".
-
+    grove_util:string_format("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( ~s ), {order, ~s } ) ) end).",
+			     [grove_util:to_string(?TEMPORARY_FUNCTION), 
+			      Comprehension, 
+			      grove_util:to_string(Ord)]).
 
 
 %%-----------------------------------------------------------------------------------------------

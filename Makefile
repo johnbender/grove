@@ -1,4 +1,4 @@
-MODULES   = grove grove_appmod grove_util grove_mnesia grove_mnesia_ops smerl 
+MODULES   = grove grove_appmod grove_util grove_mnesia grove_mnesia_ops grove_custom smerl 
 BEAMS     = $(MODULES:%=%.beam)
 TEST 			= $(MODULES:%=%.beam)
 

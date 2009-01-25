@@ -1,7 +1,7 @@
 -module(grove_custom).
 -compile(export_all).
-
--define(MOD, grove_mnesia).
+-define(ADAPT, grove_mnesia).
+-define(OPS, grove_mnesia_ops).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    find/2
@@ -9,9 +9,9 @@
 %%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
-    Result = ?MOD:run_query({parts, 
+    Result = ?ADAPT:run_query({parts, 
 		   {table, Object}, 
 		   {columns, all}, 
-		   {operations, [?MOD:eq(?MOD:column(Object, item), ID)]}, 
+		   {operations, [?OPS:eq(?ADAPT:column(Object, item), ID)]}, 
 		   {order, []}}),
-    ?MOD:format_json(Result, Object, all).
+    ?ADAPT:format_json(Result, Object, all).
