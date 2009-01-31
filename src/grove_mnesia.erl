@@ -1,11 +1,11 @@
 -module(grove_mnesia).
-
 -export([object_exists/1, 
 	 run_query/1, 
 	 run_query/3,
 	 format_json/3,
 	 column/2
 	]).
+
 
 -define(NOTEST, 1).
 -define(DEFAULT_QLC_LOCATION, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl").
@@ -20,7 +20,6 @@ run_query({parts, {table, Table}, {columns, Columns}, {operations, Ops}, {order,
 
 run_query(Query, Table, Ord) when is_list(Query) ->
     FuncDef = query_func(Query, Ord),
-    io:format("~s", [FuncDef]),
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
     Result.
@@ -55,10 +54,8 @@ format_query({parts, {table, Name}, Col, Ops}) ->
 
 %%!!must be last to finalize the formatted comprehension
 format_query({parts, Table, Col, Ops}) -> 
-    grove_util:string_format("[ ~s , ~s, ~s ]",
-			     [Col,
-			      Table,
-			      Ops]).
+    grove_util:sfrmt("[ ~s ~s, ~s ]",
+		     [Col, Table, Ops]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_generator/2
@@ -66,9 +63,9 @@ format_query({parts, Table, Col, Ops}) ->
 %%             standard. 
 %%-----------------------------------------------------------------------------------------------
 format_generator(Table) ->
-    grove_util:string_format("~s <- mnesia:table(~s) ",
-			     [grove_util:initcap(Table),
-			      string:to_lower(Table)]).
+    grove_util:sfrmt("~s <- mnesia:table(~s) ",
+		     [grove_util:initcap(Table),
+		      string:to_lower(Table)]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_operations/2
@@ -85,15 +82,18 @@ format_generator(Table) ->
 %%-----------------------------------------------------------------------------------------------
 format_operations(Table, none) ->
     format_operations(Table, []);
+
 format_operations(_table, []) -> [];
 
 format_operations(Table, [{struct, _operation}|_t] = OpList) ->
     format_operations(Table, OpList, []);
+
 format_operations(Table, OpStrList) when is_list(OpStrList) ->
     format_operations(Table, [], OpStrList).
 
 format_operations(_table, [], Ops) ->
-    ", " ++ string:join(Ops, ", ");
+    string:join(Ops, ", ");
+
 format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
     Operation = list_to_atom(grove_util:to_string(Op)),
     OpStr = grove_mnesia_ops:Operation(format_operand(Table, LOp), format_operand(Table, ROp)),
@@ -106,10 +106,13 @@ format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
 %%-----------------------------------------------------------------------------------------------
 format_columns(Table, []) ->
     format_columns(Table, all);
+
 format_columns(Table, <<"all">>) ->
     format_columns(Table, all); 
+
 format_columns(Table, all) ->
     grove_util:initcap(Table) ++ " || ";
+
 format_columns(Table, Columns) when is_list(Columns) ->
     format_columns(Table, Columns, "").
 
@@ -118,11 +121,13 @@ format_columns(Table, Columns) when is_list(Columns) ->
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
 format_columns(Table, [], ColumnList) ->
-    grove_util:string_format("{ ~s , ~s } || ", 
-			     [string:to_lower(Table),
-			      string:join(ColumnList, ", ")]);
+    grove_util:sfrmt("{ ~s , ~s } || ", 
+		     [string:to_lower(Table),
+		      string:join(ColumnList, ", ")]);
+
 format_columns(Table, [<<Column>>|T], ColumnList) ->
     format_columns(Table, [Column|T], ColumnList);
+
 format_columns(Table, [Column|T], ColumnList) ->
     format_columns(Table, 
 		   T, 
@@ -135,13 +140,15 @@ format_columns(Table, [Column|T], ColumnList) ->
 %%-----------------------------------------------------------------------------------------------
 column(Table, Name) when is_binary(Name) ->
     column(Table, binary_to_list(Name));
+
 column(Table, Name) when is_atom(Name) -> 
     column(Table, atom_to_list(Name));
+
 column(Table, Name) ->
-    grove_util:string_format("~s#~s.~s",
-			     [grove_util:initcap(Table), 
-			      string:to_lower(Table), 
-			      string:to_lower(Name)]).
+    grove_util:sfrmt("~s#~s.~s",
+		     [grove_util:initcap(Table), 
+		      string:to_lower(Table), 
+		      string:to_lower(Name)]).
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_json/2
 %%Description: Formats a mnesia query result in to a json array of objects. for example the table 
@@ -158,36 +165,42 @@ column(Table, Name) ->
 %%-----------------------------------------------------------------------------------------------
 format_json(Rows, Table, []) ->
     format_json(Rows, Table, all);
+
 format_json(Rows, Table, <<"all">>) ->
     format_json(Rows, Table, all);
+
 format_json(Rows, Table, all) when is_list(Rows), is_list(Table) ->
     Attributes = attribute_names(Table),
-    json_tuple(Rows, Attributes, []);
+    json_array(Rows, Attributes, []);
+
 format_json(Rows, Table, Columns) when is_list(Rows), is_list(Table) ->
     Attributes = grove_util:intersection(attribute_names(Table), grove_util:all_lower_strings(Columns)),
-    json_tuple(Rows, Attributes, []).
+    json_array(Rows, Attributes, []).
 
-json_tuple([], _, JSONArray) ->
+
+
+json_array([], _, JSONArray) ->
     mochijson2:encode(JSONArray);
 
-json_tuple([Row|T], Attributes, JSONArray) when is_tuple(Row)->
-    json_tuple(T, Attributes, [format_struct(Attributes, tuple_to_list(Row))|JSONArray]).
+json_array([Row|T], Attributes, JSONArray) when is_tuple(Row)->
+    json_array(T, Attributes, [format_result_struct(Attributes, tuple_to_list(Row))|JSONArray]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_struct/2
 %%Description: Turns a row set result from mnesia into part of the result struct that mochijson2
-%%             can format
+%%             can format. Head of the initial call is removed because it is assumed to be the 
+%%             atom of the table name, from queries with/without column definitions
 %%-----------------------------------------------------------------------------------------------
-format_struct(Attributes,[_h|Values])when is_list(Values), is_list(Attributes) ->
-    format_struct(Attributes, Values, {struct, []}).
+format_result_struct([_h|_t] = Attributes,[_h|Values]) when is_list(Attributes) ->
+    format_result_struct(Attributes, Values, {struct, []}).
 
-format_struct([], [], Struct) -> Struct;
+format_result_struct([], [], Struct) -> Struct;
 
-format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) when is_binary(Attr)->
-    format_struct(T, T2, {struct, [{string:to_lower(binary_to_list(Attr)), Val}|KeyValueList]});
+format_result_struct([Attr|T], Vals, {struct, KeyValueList}) when is_binary(Attr)->
+    format_result_struct([binary_to_list(Attr)|T], Vals, {struct, KeyValueList});
 
-format_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
-    format_struct(T, T2, {struct, [{Attr, Val}|KeyValueList]}).
+format_result_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
+    format_result_struct(T, T2, {struct, KeyValueList ++ [{Attr, Val}]}).
 
 %%TODO either alter mochijson to handle abitrarily complex values from mnesia or handle it here
 %%probably a doosy
@@ -198,28 +211,32 @@ attribute_names(Table) when is_atom(Table) ->
     Attributes = mnesia:table_info(Table,  attributes),
     grove_util:all_lower_strings(Attributes).
 		
-record(Table, AttrList) when is_atom(Table) ->
+
+
+record(Table, [_h|_t] = AttrList) when is_atom(Table) ->
     record(atom_to_list(Table), AttrList);
-record(Table, AttrList) when is_list(AttrList) ->
-    grove_util:string_format("-record( ~s , { ~s }).", 
-			     [string:to_lower(Table), 
-			      string:join(AttrList, ", ")]).
+
+record(Table, [_h|_t] = AttrList) when is_list(AttrList) ->
+    grove_util:sfrmt("-record( ~s , { ~s }).", 
+		     [string:to_lower(Table), 
+		      string:join(AttrList, ", ")]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    query_func/2
 %%Description: returns the function code to execute the list comprehension query, without order
-%%             hard not to feel like this is really hackish. Need to implement string_format in 
+%%             hard not to feel like this is really hackish. Need to implement sfrmt in 
 %%             grove util. 
 %%-----------------------------------------------------------------------------------------------
 query_func(Comprehension, []) ->
-    grove_util:string_format("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:q( ~s ) ) end).",
-			     [grove_util:to_string(?TEMPORARY_FUNCTION), 
-			      Comprehension]);
+    grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:q( ~s ) ) end).",
+		     [?TEMPORARY_FUNCTION, 
+		      Comprehension]);
+
 query_func(Comprehension, Ord) ->
-    grove_util:string_format("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( ~s ), {order, ~s } ) ) end).",
-			     [grove_util:to_string(?TEMPORARY_FUNCTION), 
-			      Comprehension, 
-			      grove_util:to_string(Ord)]).
+    grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( ~s ), {order, ~s } ) ) end).",
+		     [?TEMPORARY_FUNCTION, 
+		      Comprehension, 
+		      Ord]).
 
 
 %%-----------------------------------------------------------------------------------------------
@@ -228,18 +245,23 @@ query_func(Comprehension, Ord) ->
 %%-----------------------------------------------------------------------------------------------
 object_exists(Table) when is_list(Table) ->
     object_exists(list_to_atom(string:to_lower(Table)));
+
 object_exists(Table) when is_atom(Table) ->
     try lists:member(Table, mnesia:system_info(tables))
     catch 
         exit : _reason -> false
     end.
 
-format_operand(_table, {struct , [{Type, Op}]}) ->
-    case Type of
-	<<"string">> -> "\""++ grove_util:to_string(Op) ++ "\"";
-	<<"atom">> -> list_to_atom(grove_util:to_string(Op))
-    end;
+
+
 format_operand(_table, Op) when is_number(Op) -> Op;
+
+format_operand(_table, {struct , [{<<"string">>, Op}]}) ->
+    "\""++ grove_util:to_string(Op) ++ "\"";
+
+format_operand(_table, {struct , [{<<"atom">>, Op}]}) ->
+    string:to_lower(grove_util:to_string(Op));
+
 format_operand(Table, Op) ->
     Operand = grove_util:to_string(Op),
     Attr = attribute_names(Table),
@@ -250,5 +272,36 @@ format_operand(Table, Op) ->
 
 
 %--------TESTS---------
+format_result_struct_test() ->
+    {struct, []} = format_result_struct([], [], {struct, []}),
+    {struct, [{"test", "test_value"}]} = format_result_struct(["test"], ["test_value"], {struct, []}),
+    {struct, [{"test", test_value}]} = format_result_struct(["test"], [test_value], {struct, []}),
+    {struct, [{test, test_value}]} = format_result_struct([test], [test_value], {struct, []}),
+    {struct, [{"test", test_value}, {test2, test_value2}]} = format_result_struct(["test", test2], [test_value, test_value2], {struct, []}),
+    ?assertException(error, function_clause, format_result_struct([], [])).
+
+attribute_names_test() ->
+    ?assertException(exit, _, attribute_names(arbitrary_non_existant_table)).
+
+record_test() ->
+    "-record( test_record , { attribute1 })."= record(test_record, ["attribute1"]),
+    "-record( test_record , { attribute1, attribute2 })."= record("test_record", ["attribute1", "attribute2"]),
+    ?assertException(error, function_clause, record(table, [])).
+
+object_exists_test() ->
+    false = object_exists(arbitrary_non_existant_table), 
+    false = object_exists("arbitrary_string_table"),
+    ?assertException(error, function_clause, object_exists(2)).
+
+format_operand_test() ->
+    "\"test\"" = format_operand(table, {struct , [{<<"string">>, <<"test">>}]}),
+    "test" = format_operand(table, {struct , [{<<"atom">>, <<"test">>}]}),
+    2.3 = format_operand(table, 2.3).
+    %need to add test for creating column
+
+query_func_test()->
+    Test = "TEST",
+    Result = "run_fun() -> mnesia:transaction(fun() ->qlc:e( qlc:q( " ++ Test ++ " ) ) end).",
+    Result = query_func("TEST", []).
 
 

@@ -99,7 +99,9 @@ invalid_json() ->
 
 start() ->
     mnesia:start(),
+%% needs to check for errors in the yaws config file file
     _ = yaws:start(),
+
     update_config().
 
 config() ->

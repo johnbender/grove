@@ -26,5 +26,5 @@ all_strings(Objects) ->
 all_lower_strings(Objects) ->
     lists:map(fun(X)-> string:to_lower(to_string(X)) end, Objects).
 
-string_format(Format, Strings) when is_list(Strings) ->
-    lists:flatten(io_lib:format(Format, Strings)).
+sfrmt(Format, Strings) when is_list(Strings) ->
+    lists:flatten(io_lib:format(Format, all_strings(Strings))).
