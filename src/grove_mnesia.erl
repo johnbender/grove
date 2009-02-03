@@ -5,7 +5,7 @@
 	 format_json/3,
 	 column/2
 	]).
-
+-compile(export_all).
 
 -define(NOTEST, 1).
 -define(DEFAULT_QLC_LOCATION, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl").
@@ -14,12 +14,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-run_query({parts, {table, Table}, {columns, Columns}, {operations, Ops}, {order, Ord}}) ->
-    Compr = format_query({parts, {table, Table}, {columns, Columns}, {operations, Ops}}),
+run_query({parts, {table, Table}, {columns, _columns}, {operations, _ops}, {order, Ord}}) ->
+    %format_query doesn't take the order, as it is applied externally via another qlc function
+    %in mnesia
+    Compr = format_query({parts, {table, Table}, {columns, _columns}, {operations, _ops}}),
     run_query(Compr, Table, Ord).
 
-run_query(Query, Table, Ord) when is_list(Query) ->
-    FuncDef = query_func(Query, Ord),
+run_query(Compr, Table, Ord) when is_list(Compr) ->
+    FuncDef = query_func(Compr, Ord),
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
     Result.
@@ -27,6 +29,7 @@ run_query(Query, Table, Ord) when is_list(Query) ->
 compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
     AttrList = attribute_names(Table),
     Mod = smerl:new(ModName),
+  %  io:format("~s~n", FuncDef),
     {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
@@ -54,7 +57,7 @@ format_query({parts, {table, Name}, Col, Ops}) ->
 
 %%!!must be last to finalize the formatted comprehension
 format_query({parts, Table, Col, Ops}) -> 
-    grove_util:sfrmt("[ ~s ~s, ~s ]",
+    grove_util:sfrmt("[ ~s ~s ~s ]",
 		     [Col, Table, Ops]).
 
 %%-----------------------------------------------------------------------------------------------
@@ -63,41 +66,46 @@ format_query({parts, Table, Col, Ops}) ->
 %%             standard. 
 %%-----------------------------------------------------------------------------------------------
 format_generator(Table) ->
-    grove_util:sfrmt("~s <- mnesia:table(~s) ",
-		     [grove_util:initcap(Table),
-		      string:to_lower(Table)]).
+    TStr = grove_util:to_string(Table),
+    grove_util:sfrmt("~s <- mnesia:table(~s)",
+		     [grove_util:initcap(TStr),
+		      string:to_lower(TStr)]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_operations/2
 %%Description: format operations handles the comparison operations in the comprehension for example
 %%             code: eq(column(table, column1), 3.5) => Table#table.column1 =:= 3.5
-%%             json: {"operations" :  [  {"eq" : {"column1" : 2.3 }}]} => Table#table.column1 =:= 2.3
-%%             its important to note that if the 2.3 in the JSON example were changed to a string that 
+%%             json: {"operations" :  [  {"eq" : {"column1" : "foo" }}]} => Table#table.column1 =:= "foo"
+%%             
+%%             !Its important to note that if the "foo" in the JSON example were changed to a string that 
 %%             matches a column in the table being queried it will transform it into column syntax
 %%             to allow column to column comparisons within a single table
 %%            
-%%             if you want to force a string use the following:
+%%             if you want to force a string/atom use the following ("string" <=> "atom"):
 %%             {"operations" :  [  {"eq" : {"column1" : { "string" : "column2" } }}]} =>
-%%             Table#table.column1 =:= "column2" 
+%%             Table#table.column1 =:= "column2"  
+%%             instead of
+%%             Table#table.column1 =:= Table#table.column2
 %%-----------------------------------------------------------------------------------------------
 format_operations(Table, none) ->
     format_operations(Table, []);
 
 format_operations(_table, []) -> [];
 
-format_operations(Table, [{struct, _operation}|_t] = OpList) ->
+format_operations(Table, {array, [{struct, _operation}|_t] = OpList}) ->
     format_operations(Table, OpList, []);
 
-format_operations(Table, OpStrList) when is_list(OpStrList) ->
-    format_operations(Table, [], OpStrList).
+format_operations(_table, OpStrList) when is_list(OpStrList) ->
+    OpStrList.
+
 
 format_operations(_table, [], Ops) ->
-    string:join(Ops, ", ");
+    ", " ++ string:join(Ops, ", ");
 
 format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
     Operation = list_to_atom(grove_util:to_string(Op)),
     OpStr = grove_mnesia_ops:Operation(format_operand(Table, LOp), format_operand(Table, ROp)),
-    format_operations(Table, T, [OpStr|Ops]).
+    format_operations(Table, T, Ops ++ [OpStr]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_columns/2
@@ -107,48 +115,41 @@ format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
 format_columns(Table, []) ->
     format_columns(Table, all);
 
-format_columns(Table, <<"all">>) ->
+format_columns(Table, "all") ->
     format_columns(Table, all); 
 
 format_columns(Table, all) ->
     grove_util:initcap(Table) ++ " || ";
 
+format_columns(Table, {array, Columns}) when is_list(Columns) ->
+    format_columns(Table, Columns, []);
+
 format_columns(Table, Columns) when is_list(Columns) ->
-    format_columns(Table, Columns, "").
+    format_columns(Table, Columns, []).
+
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_columns/3
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
 format_columns(Table, [], ColumnList) ->
-    grove_util:sfrmt("{ ~s , ~s } || ", 
-		     [string:to_lower(Table),
-		      string:join(ColumnList, ", ")]);
-
-format_columns(Table, [<<Column>>|T], ColumnList) ->
-    format_columns(Table, [Column|T], ColumnList);
+    grove_util:sfrmt("{ ~s , ~s } || ", [Table, string:join(ColumnList, ", ")]);
 
 format_columns(Table, [Column|T], ColumnList) ->
-    format_columns(Table, 
-		   T, 
-		   [column(Table, Column)|ColumnList]).
+    format_columns(Table, T, ColumnList ++ [column(Table, Column)]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
 %%             Record and Field name. 
 %%-----------------------------------------------------------------------------------------------
-column(Table, Name) when is_binary(Name) ->
-    column(Table, binary_to_list(Name));
-
-column(Table, Name) when is_atom(Name) -> 
-    column(Table, atom_to_list(Name));
-
 column(Table, Name) ->
+    Tstr = grove_util:to_string(Table),
+    Nstr = grove_util:to_string(Name),
     grove_util:sfrmt("~s#~s.~s",
-		     [grove_util:initcap(Table), 
-		      string:to_lower(Table), 
-		      string:to_lower(Name)]).
+		     [grove_util:initcap(Tstr), 
+		      string:to_lower(Tstr), 
+		      string:to_lower(Nstr)]).
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_json/2
 %%Description: Formats a mnesia query result in to a json array of objects. for example the table 
@@ -166,24 +167,27 @@ column(Table, Name) ->
 format_json(Rows, Table, []) ->
     format_json(Rows, Table, all);
 
-format_json(Rows, Table, <<"all">>) ->
+format_json(Rows, Table, "all") ->
     format_json(Rows, Table, all);
 
 format_json(Rows, Table, all) when is_list(Rows), is_list(Table) ->
     Attributes = attribute_names(Table),
-    json_array(Rows, Attributes, []);
+    json_array(Attributes, Rows);
 
-format_json(Rows, Table, Columns) when is_list(Rows), is_list(Table) ->
+format_json(Rows, Table, {array, Columns}) when is_list(Rows), is_list(Table) ->
     Attributes = grove_util:intersection(attribute_names(Table), grove_util:all_lower_strings(Columns)),
-    json_array(Rows, Attributes, []).
+    json_array(Attributes, Rows).
 
 
+json_array(A, R) ->
+    json_array(A, R, []).
 
-json_array([], _, JSONArray) ->
-    mochijson2:encode(JSONArray);
+json_array(_, [] ,JSONArray) ->
+    Utf8 = mochijson:encoder([{input_encoding, utf8}]),
+    Utf8({array, JSONArray});
 
-json_array([Row|T], Attributes, JSONArray) when is_tuple(Row)->
-    json_array(T, Attributes, [format_result_struct(Attributes, tuple_to_list(Row))|JSONArray]).
+json_array(Attributes, [Row|T], JSONArray) when is_tuple(Row)->
+    json_array(Attributes, T, JSONArray ++ [format_result_struct(Attributes, tuple_to_list(Row))]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    format_struct/2
@@ -191,7 +195,7 @@ json_array([Row|T], Attributes, JSONArray) when is_tuple(Row)->
 %%             can format. Head of the initial call is removed because it is assumed to be the 
 %%             atom of the table name, from queries with/without column definitions
 %%-----------------------------------------------------------------------------------------------
-format_result_struct([_h|_t] = Attributes,[_h|Values]) when is_list(Attributes) ->
+format_result_struct(Attributes, [_h|Values]) when is_list(Attributes) ->
     format_result_struct(Attributes, Values, {struct, []}).
 
 format_result_struct([], [], Struct) -> Struct;
@@ -253,13 +257,12 @@ object_exists(Table) when is_atom(Table) ->
     end.
 
 
-
 format_operand(_table, Op) when is_number(Op) -> Op;
 
-format_operand(_table, {struct , [{<<"string">>, Op}]}) ->
+format_operand(_table, {struct , [{"string", Op}]}) ->
     "\""++ grove_util:to_string(Op) ++ "\"";
 
-format_operand(_table, {struct , [{<<"atom">>, Op}]}) ->
+format_operand(_table, {struct , [{"atom", Op}]}) ->
     string:to_lower(grove_util:to_string(Op));
 
 format_operand(Table, Op) ->
@@ -272,7 +275,44 @@ format_operand(Table, Op) ->
 
 
 %--------TESTS---------
+
+format_generator_test() ->
+    "Foo <- mnesia:table(foo)" = format_generator(foo).
+    
+
+format_operations_test() ->
+    %erlang code calls
+    "Table#table.column == 3.2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), 3.2)),
+    "Table#table.column == Table#table.column2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), column(table, column2))).
+    %json calls require integration testing (needs table columns from table argument)
+    %"\"column\" == 3.2" = format_operations(table, {array, [{struct, [{"eq", {struct, [{"column", 3.2}]}}]}]}).
+    %"Table#table.column == Table#table.column2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), column(table, column2))),
+
+format_columns_test() ->
+    "{ table , Table#table.column1, Table#table.column2 } || " = format_columns(table, {array, [column1, column2]}),
+    "{ table , Table#table.column1, Table#table.column2 } || " = format_columns(table, [column1, column2]).
+
+
+column_test() ->
+    "Table#table.column" = column("Table", column),
+    "Table#table.column" = column("Table", <<"column">>),
+    "Table#table.column" = column("Table", "column").
+
+%integration test
+format_json_test() ->
+    true = true.
+
+
+json_array_test() ->
+    [91,[123,"\"firstattr\"",58,"\"test\"",125],93] = json_array( [ "firstattr" ], [{table, "test"}]),
+    [91,[123,"\"firstattr\"",58,"\"test\"",125],93] = json_array( [ firstattr ], [{table, test}]),
+    [91,[123,"\"firstattr\"",58,"3.2",125],93] = json_array( [ "firstattr" ], [{table, 3.2}]),
+    ?assertException(error, function_clause, json_array( [ "firstattr", test ], [{table, 3.2}])).
+
+
 format_result_struct_test() ->
+    {struct, [{"test", test_value}]} = format_result_struct(["test"], [table, test_value]),
+    {struct, [{"test", "test_value"}]} = format_result_struct(["test"], [table, "test_value"]),
     {struct, []} = format_result_struct([], [], {struct, []}),
     {struct, [{"test", "test_value"}]} = format_result_struct(["test"], ["test_value"], {struct, []}),
     {struct, [{"test", test_value}]} = format_result_struct(["test"], [test_value], {struct, []}),
@@ -280,6 +320,7 @@ format_result_struct_test() ->
     {struct, [{"test", test_value}, {test2, test_value2}]} = format_result_struct(["test", test2], [test_value, test_value2], {struct, []}),
     ?assertException(error, function_clause, format_result_struct([], [])).
 
+%integration test
 attribute_names_test() ->
     ?assertException(exit, _, attribute_names(arbitrary_non_existant_table)).
 
@@ -294,8 +335,8 @@ object_exists_test() ->
     ?assertException(error, function_clause, object_exists(2)).
 
 format_operand_test() ->
-    "\"test\"" = format_operand(table, {struct , [{<<"string">>, <<"test">>}]}),
-    "test" = format_operand(table, {struct , [{<<"atom">>, <<"test">>}]}),
+    "\"test\"" = format_operand(table, {struct , [{"string", "test"}]}),
+    "test" = format_operand(table, {struct , [{"atom", "test"}]}),
     2.3 = format_operand(table, 2.3).
     %need to add test for creating column
 

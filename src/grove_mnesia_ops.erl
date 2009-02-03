@@ -18,6 +18,7 @@
 %%-----------------------------------------------------------------------------------------------
 lt(Left, Right) ->
     lt([Left, Right]).
+
 lt([_l, _r] = Ops) ->
     format_operation("~s < ~s", Ops).
 
@@ -28,6 +29,7 @@ lt([_l, _r] = Ops) ->
 %%-----------------------------------------------------------------------------------------------
 lte(Left, Right) ->
     lte([Left, Right]).
+
 lte([_l, _r] = Ops) ->
     format_operation("~s <= ~s", Ops).
 
@@ -38,6 +40,7 @@ lte([_l, _r] = Ops) ->
 %%-----------------------------------------------------------------------------------------------
 gt(Left, Right) ->
     gt([Left, Right]).
+
 gt([_l, _r] = Ops) ->
     format_operation("~s > ~s", Ops).
 
@@ -48,6 +51,7 @@ gt([_l, _r] = Ops) ->
 %%-----------------------------------------------------------------------------------------------
 gte(Left, Right) ->
     gte([Left, Right]).
+
 gte([_l, _r] = Ops) ->
     format_operation("~s >= ~s", Ops).
 
@@ -58,6 +62,7 @@ gte([_l, _r] = Ops) ->
 %%-----------------------------------------------------------------------------------------------
 eq(Left, Right) ->
     eq([Left, Right]).
+
 eq([_l, _r] = Ops) ->
     format_operation("~s == ~s", Ops).
 
@@ -68,6 +73,7 @@ eq([_l, _r] = Ops) ->
 %%-----------------------------------------------------------------------------------------------
 neq(Left, Right) ->
     neq([Left, Right]).
+
 neq([_l, _r] = Ops) ->
     format_operation("~s =/= ~s", Ops).
 
@@ -87,6 +93,7 @@ format_operation(Operation, Operands) ->
 %%             must be strings
 %%-----------------------------------------------------------------------------------------------
 validate_operands([]) -> ok;
+
 validate_operands([Operand|T]) ->
     case regexp:match(Operand, ?OPERAND_ALLOW_REGEX) of
 	{match, _, _} ->  validate_operands(T);
