@@ -97,7 +97,7 @@ validate_operands([]) -> ok;
 validate_operands([Operand|T]) ->
     case regexp:match(Operand, ?OPERAND_ALLOW_REGEX) of
 	{match, _, _} ->  validate_operands(T);
-	nomatch -> throw({invalid_operand_characters})
+	nomatch -> throw(invalid_operand_characters)
     end.
 
 %-----Test-------

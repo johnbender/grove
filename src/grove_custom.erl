@@ -9,9 +9,9 @@
 %%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
-    Result = ?ADAPT:run_query({parts, 
-		   {table, Object}, 
-		   {columns, all}, 
-		   {operations, [?OPS:eq(?ADAPT:column(Object, item), ID)]}, 
-		   {order, []}}),
+    Result = ?ADAPT:run_query({qry, 
+			       {table, Object}, 
+			       {columns, all}, 
+			       {operations, [?OPS:eq(?ADAPT:column(Object, item), ID)]}, 
+			       {order, []}}),
     ?ADAPT:format_json(Result, Object, all).

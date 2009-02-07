@@ -2,8 +2,12 @@
 
 -compile(export_all).
 
+
 initcap([First|T]) ->
-    [string:to_upper(First)|string:to_lower(T)].
+    [string:to_upper(First)|string:to_lower(T)];
+
+initcap(NonString) ->
+    initcap(to_string(NonString)).
 
 to_string(Object) when is_number(Object) ->
     lists:flatten(io_lib:format("~w" , [Object]));
@@ -17,6 +21,9 @@ to_string(Object) when is_binary(Object) ->
 to_string(Object) when is_list(Object) ->
     Object.
 
+to_lower_string(Object) ->
+    string:to_lower(to_string(Object)).
+
 %% As pointed out by StoneCypher in #erlang this is not the fastest implementation
 %% the lists its working on are lists of table columns so they should be fairly short
 %% for a faster implementaion see scutil (sorted/compared). 
@@ -29,7 +36,7 @@ all_strings(Objects) ->
 
 
 all_lower_strings(Objects) ->
-    lists:map(fun(X)-> string:to_lower(to_string(X)) end, Objects).
+    lists:map(fun(X)-> to_lower_string(X) end, Objects).
 
 
 sfrmt(Format, Strings) when is_list(Strings) ->

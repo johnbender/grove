@@ -11,6 +11,7 @@ VPATH     = $(BINDIR):$(SRCDIR):$(INCDIR):$(TESTDIR)
 ERL       = erl
 ERLC      = erlc
 ERLCFLAGS = -W -smp
+DOCFLAGS = 
 
 all: $(BEAMS)
 
@@ -22,3 +23,4 @@ test: $(BEAMS) test_mnesia.beam
 
 clean:
 		rm -rf $(BINDIR)/*.beam		s
+

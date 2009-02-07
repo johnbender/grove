@@ -19,7 +19,7 @@
 
 %%-----------------------------------------------------------------------------------------------
 %% Function:    get_query
-%% Description: called from out/1 when a GET request is processed with /object/action uri
+%% @doc called from out/1 when a GET request is processed with /object/action uri
 %%              and possibly /object/action/param1/param2/etc/. Compiles fun that calls
 %%              the Function in the defined module with the Object and Params 
 %% Arguments:   Object: should represent a table in the data store being queried.
@@ -62,7 +62,7 @@ post_query(Obj, JSON) ->
 			 [{struct,[{"columns",Columns}]},
 			  {struct,[{"operations", Ops}]},
 			  {struct,[{"order", Ord}]}]}}]} } ->
-	    Result = DMod:run_query({parts, 
+	    Result = DMod:run_query({qry, 
 				     {table, Object}, 
 				     {columns, Columns}, 
 				     {operations, Ops}, 
