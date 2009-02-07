@@ -112,7 +112,7 @@ verify_config(Table) when is_atom(Table) ->
 	true ->
 	    ok;
 	false -> 
-	    mnesia:create_table(Table, [{attributes, record_info(fields, config_entry)}]),
+	    mnesia:create_table(Table, [{attributes, record_info(fields, config_entry)}, {ram_copies, [node()]}]),
 	    ok	 
     end.
 
