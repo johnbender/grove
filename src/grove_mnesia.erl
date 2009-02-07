@@ -7,7 +7,7 @@
 	]).
 
 -define(NOTEST, 1).
--define(DEFAULT_QLC_LOCATION, "/opt/erlang/lib/erlang/lib/stdlib-1.15.5/include/qlc.hrl").
+-define(DEFAULT_QLC_LOCATION, code:lib_dir() ++ "/stdlib-1.15.5/include/qlc.hrl").
 -define(TEMPORARY_MODULE, add_fun).
 -define(TEMPORARY_FUNCTION, run_fun).
 

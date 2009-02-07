@@ -1,7 +1,7 @@
 -module(grove_appmod).
 -author('john.m.bender@gmail.com').
 
--include("/opt/local/lib/yaws/include/yaws_api.hrl").
+-include_lib("yaws/include/yaws_api.hrl").
 -export([out/1]).
 
 %%-----------------------------------------------------------------------------------------------
