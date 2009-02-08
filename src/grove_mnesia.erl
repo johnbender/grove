@@ -1,7 +1,6 @@
 -module(grove_mnesia).
 -export([object_exists/1, 
-	 run_query/1, 
-	 run_query/3,
+	 run_query/1,
 	 format_json/3,
 	 column/2
 	]).
@@ -13,29 +12,44 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%%
+%%@doc This is the main function through which the grove module executes queries to 
+%%mnesia. It uses the same standard query tuple, used by all other grove_* data
+%%adapter modules
+%%
 run_query({qry, {table, Table}, {columns, _columns}, {operations, _ops}, {order, Ord}}) ->
+
     %format_query doesn't take the order, as it is applied externally via another qlc function
     Compr = format_query({qry, {table, Table}, {columns, _columns}, {operations, _ops}}),
-    run_query(Compr, Table, Ord).
 
-run_query(Compr, Table, Ord) when is_list(Compr) ->
+    %Build the function string for smerl to compile
     FuncDef = query_func(Compr, Ord),
+
+    %Build the code that will execute our query
     compile_query(?TEMPORARY_MODULE, FuncDef, Table),
+
+    %Run the query and retrieve the result
     {atomic, Result} = ?TEMPORARY_MODULE:?TEMPORARY_FUNCTION(),
+
+    %send back the result
     Result.
 
 compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
     AttrList = attribute_names(Table),
     Mod = smerl:new(ModName),
+    io:format("~s", [FuncDef]),
     {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
     ok = smerl:compile(FuncAdded).
 
 
-%%@doc format_query deals with the qry tuple by placing the resulting values for each element into the same position in the tuple and passing it on. Finally it returns the comprehension string that constitutes the query
 
-%%an empty set or the atom all in conjunction with the columns produce the same result		    
+%%----------------------------------------------------------------------------------------------------
+%%Description: format_query deals with the qry tuple by placing the resulting values for 
+%%each element into the same position in the tuple and passing it on. Finally it returns 
+%%the comprehension string that constitutes the query
+%%----------------------------------------------------------------------------------------------------
 format_query({qry, {table, Name}, {columns, Columns}, Ops}) ->
     ColStr = format_columns(Name, Columns),
     format_query({qry, {table, Name}, ColStr, Ops});
@@ -53,8 +67,10 @@ format_query({qry, Table, Col, Ops}) ->
     grove_util:sfrmt("[ ~s || ~s ~s ]",
 		     [Col, Table, Ops]).
 
-
-%%@doc format_generator builds the generator for the comprehension. The variable is the table name as a standard. 
+%%----------------------------------------------------------------------------------------------------
+%%Description: format_generator builds the generator for the comprehension. The variable is the table 
+%%name as a standard. 
+%%----------------------------------------------------------------------------------------------------
 format_generator(Table) when is_list(Table) ->
     grove_util:sfrmt("~s <- mnesia:table(~s)",
 		     [grove_util:initcap(Table),
@@ -65,12 +81,11 @@ format_generator(Table) ->
 
 
 
-%%-----------------------------------------------------------------------------------------------
-%%Function:    format_operations/2
+%%----------------------------------------------------------------------------------------------------
 %%Description: format operations handles the comparison operations in the comprehension for example
 %%             code: eq(column(table, column1), 3.5) => Table#table.column1 =:= 3.5
 %%             json: {"operations" :  [  {"eq" : {"column1" : "foo" }}]} => Table#table.column1 =:= "foo"
-%%             
+%%          
 %%             !Its important to note that if the "foo" in the JSON example were changed to a string that 
 %%             matches a column in the table being queried it will transform it into column syntax
 %%             to allow column to column comparisons within a single table
@@ -80,8 +95,11 @@ format_generator(Table) ->
 %%             Table#table.column1 =:= "column2"  
 %%             instead of
 %%             Table#table.column1 =:= Table#table.column2
-%%-----------------------------------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------------------
 format_operations(Table, none) ->
+    format_operations(Table, []);
+
+format_operations(Table, {array, []}) ->
     format_operations(Table, []);
 
 format_operations(_table, []) -> [];
@@ -89,9 +107,9 @@ format_operations(_table, []) -> [];
 format_operations(Table, {array, [{struct, _operation}|_t] = OpList}) ->
     format_operations(Table, OpList, []);
 
+%%handles direct string from grove_custom or other custom get query modules
 format_operations(_table, OpStrList) when is_list(OpStrList) ->
-    OpStrList.
-
+    ", " ++ OpStrList.
 
 format_operations(_table, [], Ops) ->
     ", " ++ string:join(Ops, ", ");
@@ -101,16 +119,19 @@ format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
     OpStr = grove_mnesia_ops:Operation(format_operand(Table, LOp), format_operand(Table, ROp)),
     format_operations(Table, T, Ops ++ [OpStr]).
 
-%%-----------------------------------------------------------------------------------------------
-%%Function:    format_columns/2
+%%----------------------------------------------------------------------------------------------------
 %%Description: Returns the columns list string necessary for limiting those columns in an mnesia
 %%             query string, the atom all produces "Table ||" 
-%%-----------------------------------------------------------------------------------------------
+%%----------------------------------------------------------------------------------------------------
+
 format_columns(Table, []) ->
     format_columns(Table, all);
 
 format_columns(Table, "all") ->
     format_columns(Table, all); 
+
+format_columns(Table, {array, []}) ->
+    format_columns(Table, all);
 
 format_columns(Table, all) ->
     grove_util:initcap(Table);
@@ -123,7 +144,6 @@ format_columns(Table, Columns) when is_list(Columns) ->
 
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    format_columns/3
 %%Description: creates the correct string for selecting specific columns in a set comprehension 
 %%-----------------------------------------------------------------------------------------------
 format_columns(Table, [], ColumnList) ->
@@ -133,7 +153,6 @@ format_columns(Table, [Column|T], ColumnList) ->
     format_columns(Table, T, ColumnList ++ [column(Table, Column)]).
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    column/2
 %%Description: returns the string representing a column in an mnesia query, built from the 
 %%             Record and Field name. 
 %%-----------------------------------------------------------------------------------------------
@@ -145,7 +164,6 @@ column(Table, Name) ->
 		      string:to_lower(Tstr), 
 		      string:to_lower(Nstr)]).
 %%-----------------------------------------------------------------------------------------------
-%%Function:    format_json/2
 %%Description: Formats a mnesia query result in to a json array of objects. for example the table 
 %%             defined by the record
 %%
@@ -155,13 +173,16 @@ column(Table, Name) ->
 %%              
 %%             [{"cost":2.3,"quantity":20,"item":"apple"}, {"cost":2.0,"quantity":10,"item":"orange"}]
 %%        
-%%             **Currently its only been tested with key/value pairs, where value is a string or 
+%%             **Currently it only works with key/value pairs, where value is a string or 
 %%             a number. 
 %%-----------------------------------------------------------------------------------------------
 format_json(Rows, Table, []) ->
     format_json(Rows, Table, all);
 
 format_json(Rows, Table, "all") ->
+    format_json(Rows, Table, all);
+
+format_json(Rows, Table, {array, []}) ->
     format_json(Rows, Table, all);
 
 format_json(Rows, Table, all) when is_list(Rows), is_list(Table) ->
@@ -184,19 +205,23 @@ json_array(Attributes, [Row|T], JSONArray) when is_tuple(Row)->
     json_array(Attributes, T, JSONArray ++ [format_result_struct(Attributes, tuple_to_list(Row))]).
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    format_struct/2
 %%Description: Turns a row set result from mnesia into part of the result struct that mochijson2
 %%             can format. Head of the initial call is removed because it is assumed to be the 
 %%             atom of the table name, from queries with/without column definitions
 %%-----------------------------------------------------------------------------------------------
+
+%%removes the atom representing the table name from the single row of the result
 format_result_struct(Attributes, [_h|Values]) when is_list(Attributes) ->
     format_result_struct(Attributes, Values, {struct, []}).
 
+%%return the structure to be encoded 
 format_result_struct([], [], Struct) -> Struct;
 
+%%converts binary, kept here from mochijson2 comapatability, and for future compatability
 format_result_struct([Attr|T], Vals, {struct, KeyValueList}) when is_binary(Attr)->
     format_result_struct([binary_to_list(Attr)|T], Vals, {struct, KeyValueList});
 
+%%put the column names and their values together
 format_result_struct([Attr|T], [Val|T2], {struct, KeyValueList}) ->
     format_result_struct(T, T2, {struct, KeyValueList ++ [{Attr, Val}]}).
 
@@ -221,7 +246,6 @@ record(Table, AttrList) when is_list(AttrList)->
 		      string:join(AttrList, ", ")]).
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    query_func/2
 %%Description: returns the function code to execute the list comprehension query, without order
 %%             hard not to feel like this is really hackish. Need to implement sfrmt in 
 %%             grove util. 
@@ -239,7 +263,6 @@ query_func(Comprehension, Ord) ->
 
 
 %%-----------------------------------------------------------------------------------------------
-%%Function:    object_exists/1
 %%Description: Checks to see if the table is present in mnesia
 %%-----------------------------------------------------------------------------------------------
 object_exists(Table) when is_list(Table) ->

@@ -1,0 +1,31 @@
+
+<form method="POST" action="http://localhost:8000/grove/shop/"
+    id="first" name="first">
+    <input type="hidden" name="query" id="query" 
+    value ='{ "query" :
+                [   {"columns" : []}, 
+                    {"operations" :  [{"eq" : {"item" : { "string" : "orange"}}}]}, 
+                    {"order": "descending" }
+                ] 
+            }'
+    />
+    <input type="Submit" value="Query Localhost" />
+
+</form> 
+
+
+<form method="POST" action="http://adder:2000/grove/shop/"
+    id="second" name="second">
+    <input type="hidden" name="query" id="query" 
+    value ='{ "query" :
+                [   {"columns" : ["cost", "item"]}, 
+                    {"operations" :  [{"eq" : {"item" : { "string" : "orange"}}}]}, 
+                    {"order": "descending" }
+                ] 
+            }'
+    />
+
+    <input type="Submit" value="Query Adder" />
+
+</form> 
+
