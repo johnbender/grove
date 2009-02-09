@@ -1,8 +1,10 @@
 -module(grove_appmod).
--author('john.m.bender@gmail.com').
+-export([out/1]).
 
 -include_lib("yaws/include/yaws_api.hrl").
--export([out/1]).
+
+-define(JSON_MIMETYPE, "application/json").
+-define(JSON_ROOT_ELEMENT, "{\"result\":~s}").
 
 %%-----------------------------------------------------------------------------------------------
 %% Function:    out
@@ -18,11 +20,18 @@ out(Args) ->
 	    grove:get_query(Object, Action, Params);
 	{'POST', [_ModName,Object]} ->
 	    case  yaws_api:postvar(Args, 'query') of
-		{ok, JSON} -> grove:post_query(Object, JSON);
-		undefined -> grove:string_response("Query post variable not defined'")
+		{ok, JSON} -> json_response(grove:post_query(Object, JSON));
+		undefined -> json_response("\"Query post variable not defined\"")
 	    end;
 	{_Method, _UriTokens} -> {status, 400} % grove:error_status().
     end.
+
+%%-----------------------------------------------------------------------------------------------
+%% Description: pulls the content response together 
+%%-----------------------------------------------------------------------------------------------
+json_response(JSON) -> {content, ?JSON_MIMETYPE, grove_util:sfrmt( ?JSON_ROOT_ELEMENT, [JSON])}.
+
+
 
 
 

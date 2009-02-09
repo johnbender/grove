@@ -1,6 +1,6 @@
-{ config_table_name, grove_config}.
+{ config_table_name, grove_config }.
 { objects, [shop]}.
-{ attributes, [{shop, [cost, name]}]}.
+{ attributes, [{shop, [cost, name]}] }.
 { data_adapter_mod, grove_mnesia }.
 { operations_mod, grove_mnesia_ops }.
 { custom_mod, grove_custom }.

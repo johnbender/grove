@@ -1,19 +1,15 @@
 -module(grove).
 -export([get_query/3,
 	 post_query/2,
-	 json_response/1,
-	 string_response/1,
-	 error_status/0,
-         start/0,
-	 update_config/0]).
+	 start/0,
+         start/1,
+	 update_config/1]).
 
 -record(config_entry, {name, value}).
 
 -define(ERROR_STATUS, {status, 400}).
--define(JSON_ROOT_ELEMENT, "{'result': ~s }").
--define(STRING_ROOT_ELEMENT, "{'result' : '~s' }").
--define(JSON_MIMETYPE, "application/json").
--define(OBJECT_NOT_AVAILABLE, " is not available for querying.").
+-define(OBJECT_NOT_AVAILABLE, "\"" ++ Object ++ " is not available for querying.\"").
+-define(FUNCTION_NOT_IMP, "\"" ++  Function ++ " is not implemented.\"").
 
 -include_lib("stdlib/include/qlc.hrl"). 
 
@@ -35,10 +31,10 @@ get_query(Obj, Act, Params) ->
 
     %make sure the action is implemented, the object exists, and the object is permitted
     case {DMod:object_exists(Object), lists:member(Object, PObjs), lists:member({Function, 2}, Exports)} of
-	{false, _, _} -> string_response(Object ++ ?OBJECT_NOT_AVAILABLE);
-	{_, false, _} -> string_response(Object ++ ?OBJECT_NOT_AVAILABLE);
-	{_, _, false} -> string_response(Function ++ " is not implemented.");
-	{true, true, true} -> json_response(CMod:Function(Object, Params))
+	{false, _, _} -> ?OBJECT_NOT_AVAILABLE;
+	{_, false, _} -> ?OBJECT_NOT_AVAILABLE;
+	{_, _, false} -> ?FUNCTION_NOT_IMP;
+	{true, true, true} -> CMod:Function(Object, Params)
     end.
 
 %%-----------------------------------------------------------------------------------------------
@@ -54,8 +50,8 @@ post_query(Obj, JSON) ->
     Permitted = lists:member(Object, PObjs),
 
     case {Exists, Permitted, Decoded} of
-	{false, _ , _} -> string_response(Object ++ ?OBJECT_NOT_AVAILABLE);
-	{_, false, _ } -> string_response(Object ++ ?OBJECT_NOT_AVAILABLE);
+	{false, _ , _} -> ?OBJECT_NOT_AVAILABLE;
+	{_, false, _ } -> ?OBJECT_NOT_AVAILABLE;
 	{true, true, {struct,
 		      [{"query",
 			{array,
@@ -67,42 +63,30 @@ post_query(Obj, JSON) ->
 				     {columns, Columns}, 
 				     {operations, Ops}, 
 				     {order, Ord}}),
-	    json_response(DMod:format_json(Result, Object, Columns));
+	    DMod:format_json(Result, Object, Columns);
 	_other -> invalid_json() 
     end.
 
-%%-----------------------------------------------------------------------------------------------
-%% Function:    content
-%% Description: pulls the content response together 
-%%-----------------------------------------------------------------------------------------------
-json_response(JSON) -> {content, ?JSON_MIMETYPE, io_lib:format( ?JSON_ROOT_ELEMENT, [JSON])}.
-
-%%-----------------------------------------------------------------------------------------------
-%% Function:    error_status
-%% Description: moved to a function to facilitate something more complex than a simple tuple
-%%              result down the road
-%%-----------------------------------------------------------------------------------------------
-string_response(JSON) ->  {content, ?JSON_MIMETYPE, io_lib:format( ?STRING_ROOT_ELEMENT, [JSON])}.
-
-%%Generic error response for appmod/yapp/mochiweb use
-error_status() -> ?ERROR_STATUS.
-
 invalid_json() ->
-     string_response("Invalid JSON String. Your JSON must take the format: " ++
+     "\"Invalid JSON String. Your JSON must take the format: " ++
 				  "{\"query\" : " ++ 
 				  "{\"columns\" : []}," ++ 
 				  "{\"operations\" :  [] }," ++ 
-				  "{\"order\": [] }] }").
+				  "{\"order\": [] }] }\"".
 
-start() ->
+
+start(ConfigLoc) ->
     mnesia:start(),
 %% needs to check for errors in the yaws config file file
     _ = yaws:start(),
-    update_config().
+    update_config(ConfigLoc).
 
 
-consult_config() ->
-    {ok, Config} = file:consult("config/config.txt"),
+start() ->
+    start(query_config(config_location)).
+
+consult_config(ConfigLoc) ->
+    {ok, Config} = file:consult(ConfigLoc),
     Config.
 
 
@@ -125,18 +109,21 @@ write_config(Table, [{Name, Value}|T]) when is_atom(Table) ->
     write_config(Table, T).
     
 
-update_config() ->
-    [{config_table_name, ConfTableName}|Config] = consult_config(),
+update_config(ConfigLoc) ->
+    [{config_table_name, ConfTableName}|Config] = consult_config(ConfigLoc),
     ok = verify_config(ConfTableName),
-    ok = write_config(ConfTableName, Config).
+    ok = write_config(ConfTableName, Config ++ [{config_location, ConfigLoc}]).
 
 
 query_config(EntryName) when is_atom(EntryName) ->
     T = fun() -> 
 		qlc:e(qlc:q([ X || X <- mnesia:table(grove_config), X#config_entry.name =:= EntryName]))
 	end,
-    {atomic, [{grove_config, EntryName, Result}]} = mnesia:transaction(T),
-    Result.
+    {atomic, Rows} = mnesia:transaction(T),
+    case Rows of
+	[] -> io:format("There is no entry in the config mnesia table matching" ++ atom_to_list(EntryName));
+	[{grove_config, EntryName, Result}] -> Result
+    end.
 
 read_config() ->
     { query_config(custom_mod),

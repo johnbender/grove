@@ -37,7 +37,6 @@ run_query({qry, {table, Table}, {columns, _columns}, {operations, _ops}, {order,
 compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
     AttrList = attribute_names(Table),
     Mod = smerl:new(ModName),
-    io:format("~s", [FuncDef]),
     {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
@@ -199,7 +198,7 @@ json_array(A, R) ->
 
 json_array(_, [] ,JSONArray) ->
     Utf8 = mochijson:encoder([{input_encoding, utf8}]),
-    Utf8({array, JSONArray});
+    lists:flatten(Utf8({array, JSONArray}));
 
 json_array(Attributes, [Row|T], JSONArray) when is_tuple(Row)->
     json_array(Attributes, T, JSONArray ++ [format_result_struct(Attributes, tuple_to_list(Row))]).
@@ -292,7 +291,7 @@ format_operand(Table, Op) ->
     end.
 
 
-%--------TESTS---------
+%--------UNIT TESTS---------
 
 format_query_test() ->
     "[ Foo || Foo <- mnesia:table(foo)  ]" = format_query({qry, {table, foo}, {columns, all}, {operations, []}}),
