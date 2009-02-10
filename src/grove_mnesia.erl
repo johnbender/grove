@@ -249,17 +249,19 @@ record(Table, AttrList) when is_list(AttrList)->
 %%             hard not to feel like this is really hackish. Need to implement sfrmt in 
 %%             grove util. 
 %%-----------------------------------------------------------------------------------------------
-query_func(Comprehension, []) ->
+query_func(Comprehension, {array , []}) ->
     grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:q( ~s ) ) end).",
 		     [?TEMPORARY_FUNCTION, 
 		      Comprehension]);
+
+query_func(Comprehension, {array, [Ord]}) ->
+    query_func(Comprehension, Ord);
 
 query_func(Comprehension, Ord) ->
     grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( ~s ), {order, ~s } ) ) end).",
 		     [?TEMPORARY_FUNCTION, 
 		      Comprehension, 
 		      Ord]).
-
 
 %%-----------------------------------------------------------------------------------------------
 %%Description: Checks to see if the table is present in mnesia
