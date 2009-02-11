@@ -1,5 +1,5 @@
-MODULES   = grove grove_appmod grove_util grove_mnesia grove_mnesia_ops grove_custom smerl 
-BEAMS     = $(MODULES:%=%.beam)
+MODULES   	= grove_mnesia grove grove_appmod grove_util grove_mnesia_ops grove_custom smerl 
+BEAMS     	= $(MODULES:%=%.beam)
 
 BINDIR    = ebin
 SRCDIR    = src
@@ -14,7 +14,7 @@ ERLCFLAGS = -W -smp
 all: $(BEAMS)
 
 test: ERLCFLAGS += -DTEST
-test: $(BEAMS) grove_test.beam 
+test: $(BEAMS)
 
 %.beam: %.erl
 		$(ERLC) -b beam $(ERLCFLAGS) -I $(INCDIR) -o $(BINDIR) $<

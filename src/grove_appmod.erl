@@ -16,14 +16,14 @@ out(Args) ->
     Uri = yaws_api:request_url(Args),
     UriTokens = string:tokens(Uri#url.path, "/"),
     case {Method, UriTokens} of
-	{'GET', [_ModName,Object,Action|Params]} -> 
-	    grove:get_query(Object, Action, Params);
-	{'POST', [_ModName,Object]} ->
+	{'GET', [_modName,Object,Action|Params]} -> 
+	    json_response(grove:get_query(Object, Action, Params));
+	{'POST', [_modName,Object]} ->
 	    case  yaws_api:postvar(Args, 'query') of
 		{ok, JSON} -> json_response(grove:post_query(Object, JSON));
 		undefined -> json_response("\"Query post variable not defined\"")
 	    end;
-	{_Method, _UriTokens} -> {status, 400} % grove:error_status().
+        _other -> {status, 400} % grove:error_status().
     end.
 
 %%-----------------------------------------------------------------------------------------------

@@ -62,8 +62,12 @@ format_query({qry, {table, Name}, Col, Ops}) ->
     format_query({qry, TableGen, Col, Ops});
 
 %%!!must be last to finalize the formatted comprehension
+format_query({qry, Table, Col, []}) ->
+    grove_util:sfrmt("[ ~s || ~s ]",
+		     [Col, Table]);
+
 format_query({qry, Table, Col, Ops}) ->
-    grove_util:sfrmt("[ ~s || ~s ~s ]",
+    grove_util:sfrmt("[ ~s || ~s , ~s ]",
 		     [Col, Table, Ops]).
 
 %%----------------------------------------------------------------------------------------------------
@@ -108,10 +112,10 @@ format_operations(Table, {array, [{struct, _operation}|_t] = OpList}) ->
 
 %%handles direct string from grove_custom or other custom get query modules
 format_operations(_table, OpStrList) when is_list(OpStrList) ->
-    ", " ++ OpStrList.
+    OpStrList.
 
 format_operations(_table, [], Ops) ->
-    ", " ++ string:join(Ops, ", ");
+    string:join(Ops, ", ");
 
 format_operations(Table, [{struct, [{Op, {struct, [{LOp, ROp}]}}]}|T], Ops) ->
     Operation = list_to_atom(grove_util:to_string(Op)),
@@ -249,6 +253,10 @@ record(Table, AttrList) when is_list(AttrList)->
 %%             hard not to feel like this is really hackish. Need to implement sfrmt in 
 %%             grove util. 
 %%-----------------------------------------------------------------------------------------------
+
+query_func(Comprehension, []) ->
+    query_func(Comprehension, {array, []});
+
 query_func(Comprehension, {array , []}) ->
     grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:q( ~s ) ) end).",
 		     [?TEMPORARY_FUNCTION, 
@@ -258,10 +266,16 @@ query_func(Comprehension, {array, [Ord]}) ->
     query_func(Comprehension, Ord);
 
 query_func(Comprehension, Ord) ->
+    Order = case grove_util:to_lower_string(Ord) of
+		"descending" ->  Ord;
+		"ascending" -> Ord;
+		_other -> throw(invalid_order_argument)
+	    end,
+
     grove_util:sfrmt("~s() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( ~s ), {order, ~s } ) ) end).",
 		     [?TEMPORARY_FUNCTION, 
 		      Comprehension, 
-		      Ord]).
+		      Order]).
 
 %%-----------------------------------------------------------------------------------------------
 %%Description: Checks to see if the table is present in mnesia
@@ -296,7 +310,7 @@ format_operand(Table, Op) ->
 %--------UNIT TESTS---------
 
 format_query_test() ->
-    "[ Foo || Foo <- mnesia:table(foo)  ]" = format_query({qry, {table, foo}, {columns, all}, {operations, []}}),
+    "[ Foo || Foo <- mnesia:table(foo) ]" = format_query({qry, {table, foo}, {columns, all}, {operations, []}}),
     ?assertException(error, function_clause, format_query({qry, {table, foo}, {columns, all}, {operations, []}, {order, []}})).
 
 format_generator_test() ->
@@ -304,14 +318,10 @@ format_generator_test() ->
     
 
 format_operations_test() ->
-    %erlang code calls
     "Table#table.column == 3.2" = format_operations('Table', grove_mnesia_ops:eq(column(table, column), 3.2)),
     "Table#table.column == 3.2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), 3.2)),
     "Table#table.column == 3.2" = format_operations("Table", grove_mnesia_ops:eq(column(table, column), 3.2)),
     "Table#table.column == Table#table.column2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), column(table, column2))).
-    %json calls require integration testing (needs table columns from table argument)
-    %"\"column\" == 3.2" = format_operations(table, {array, [{struct, [{"eq", {struct, [{"column", 3.2}]}}]}]}).
-    %"Table#table.column == Table#table.column2" = format_operations(table, grove_mnesia_ops:eq(column(table, column), column(table, column2))),
 
 format_columns_test() ->
     "Table" = format_columns(table, all),
@@ -324,15 +334,10 @@ column_test() ->
     "Table#table.column" = column("Table", <<"column">>),
     "Table#table.column" = column("Table", "column").
 
-%integration test
-format_json_test() ->
-    true = true.
-
-
 json_array_test() ->
-    [91,[123,"\"firstattr\"",58,"\"test\"",125],93] = json_array( [ "firstattr" ], [{table, "test"}]),
-    [91,[123,"\"firstattr\"",58,"\"test\"",125],93] = json_array( [ firstattr ], [{table, test}]),
-    [91,[123,"\"firstattr\"",58,"3.2",125],93] = json_array( [ "firstattr" ], [{table, 3.2}]),
+    "[{\"firstattr\":\"test\"}]" = json_array( [ "firstattr" ], [{table, "test"}]),
+    "[{\"firstattr\":\"test\"}]" = json_array( [ firstattr ], [{table, test}]),
+    "[{\"firstattr\":3.2}]" = json_array( [ "firstattr" ], [{table, 3.2}]),
     ?assertException(error, function_clause, json_array( [ "firstattr", test ], [{table, 3.2}])).
 
 
@@ -368,7 +373,10 @@ format_operand_test() ->
 
 query_func_test()->
     Test = "TEST",
-    Result = "run_fun() -> mnesia:transaction(fun() ->qlc:e( qlc:q( " ++ Test ++ " ) ) end).",
-    Result = query_func("TEST", []).
+    "run_fun() -> mnesia:transaction(fun() ->qlc:e( qlc:q( TEST ) ) end)." =  query_func(Test, []),
+    "run_fun() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( TEST ), {order, ascending } ) ) end)." =  query_func(Test, "ascending"),
+    "run_fun() -> mnesia:transaction(fun() ->qlc:e( qlc:sort( qlc:q( TEST ), {order, descending } ) ) end)." =  query_func(Test, {array, ["descending"]}),
+    ?assertException(throw, invalid_order_argument, query_func(Test, ["descend"])).
+    
 
 

@@ -31,7 +31,7 @@ lte(Left, Right) ->
     lte([Left, Right]).
 
 lte([_l, _r] = Ops) ->
-    format_operation("~s <= ~s", Ops).
+    format_operation("~s =< ~s", Ops).
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    gt
@@ -112,8 +112,9 @@ lt_test() ->
     "Shop < 2.0" = lt("Shop", 2.0).
 
 lte_test() ->
-    "1 <= 2" =  lte(1, 2),
-    "Shop <= 20" =  lte("Shop", 20).
+    "1 =< 2" =  lte(1, 2),
+    "Shop =< 20" =  lte("Shop", 20),
+    "\"Shop\" =< 20" =  lte("\"Shop\"", 20).
 
 gt_test() ->
     "1 > 2" =  gt(1, 2),

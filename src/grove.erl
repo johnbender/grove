@@ -3,23 +3,30 @@
 	 post_query/2,
 	 start/0,
          start/1,
-	 update_config/1]).
+	 update_config/1,
+	 mnesia_setup/0]).
 
--record(config_entry, {name, value}).
-
+-define(NOTEST, 1).
 -define(ERROR_STATUS, {status, 400}).
 -define(OBJECT_NOT_AVAILABLE, "\"" ++ Object ++ " is not available for querying.\"").
 -define(FUNCTION_NOT_IMP, "\"" ++  Function ++ " is not implemented.\"").
+-define(PARSED_JSON_STRUCTURE, {struct,
+				[{"query",
+				  {array,
+				   [{struct,[{"columns",Columns}]},
+				    {struct,[{"operations", Ops}]},
+				    {struct,[{"order", Ord}]}]}}]} ). 
 
 -include_lib("stdlib/include/qlc.hrl"). 
+-include_lib("eunit/include/eunit.hrl").
 
 %%-----------------------------------------------------------------------------------------------
 %% Function:    get_query
 %% @doc called from out/1 when a GET request is processed with /object/action uri
 %%              and possibly /object/action/param1/param2/etc/. Compiles fun that calls
-%%              the Function in the defined module with the Object and Params 
-%% Arguments:   Object: should represent a table in the data store being queried.
-%%              Action: MUST represent a function in the defined module
+%%              the Function in the defined module with the Object and Params <br/>
+%% Arguments:   Obj: should represent a table in the data store being queried.
+%%              Act: MUST represent a function in the CMod module
 %%              Params: represents the rest of the URI path elements or an empty set
 %%-----------------------------------------------------------------------------------------------
 get_query(Obj, Act, Params) ->
@@ -52,12 +59,7 @@ post_query(Obj, JSON) ->
     case {Exists, Permitted, Decoded} of
 	{false, _ , _} -> ?OBJECT_NOT_AVAILABLE;
 	{_, false, _ } -> ?OBJECT_NOT_AVAILABLE;
-	{true, true, {struct,
-		      [{"query",
-			{array,
-			 [{struct,[{"columns",Columns}]},
-			  {struct,[{"operations", Ops}]},
-			  {struct,[{"order", Ord}]}]}}]} } ->
+	{true, true, ?PARSED_JSON_STRUCTURE} ->
 	    Result = DMod:run_query({qry, 
 				     {table, Object}, 
 				     {columns, Columns}, 
@@ -74,6 +76,14 @@ invalid_json() ->
 				  "{\"operations\" :  [] }," ++ 
 				  "{\"order\": [] }] }\"".
 
+
+
+%%-----------------------------------------
+%%           Configuration Setup
+%%-----------------------------------------
+
+
+-record(config_entry, {name, value}).
 
 start(ConfigLoc) ->
     mnesia:start(),
@@ -129,3 +139,168 @@ read_config() ->
     { query_config(custom_mod),
       query_config(data_adapter_mod),
       grove_util:all_lower_strings(query_config(objects)) }.
+
+
+
+
+
+%%-----------------------------------------
+%%    Integration Tests with Mnesia
+%%-----------------------------------------
+
+-record(shop, {item, quantity, cost}).
+
+
+%%All the folowing macros should be usable for integration testing with other adapters, ie MySQL
+-define(RSLT_ITEM_COLUMN_ORANGES, "[{\"item\":\"orange\"}]").
+-define(QRY_ITEM_COLUMN_ORANGES, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"eq\" : {\"item\" : { \"string\" : \"orange\"}}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+-define(RSLT_ALL_COLUMN_ATOM_PEAR, "[{\"item\":\"pear\",\"quantity\":200,\"cost\":3.6}]").
+-define(QRY_ALL_COLUMN_ATOM_PEAR, 
+	"{ \"query\" :
+                [   {\"columns\" : []}, 
+                    {\"operations\" :  [{\"eq\" : {\"item\" : { \"atom\" : \"pear\"}}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+%pear is defined as an atom in the test data set, so it will not match
+-define(RSLT_ALL_COLUMN_PEAR, "[]").
+-define(QRY_ALL_COLUMN_PEAR, 
+	"{ \"query\" :
+                [   {\"columns\" : []}, 
+                    {\"operations\" :  [{\"eq\" : {\"item\" : \"pear\"}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+%%strings come after atoms 
+-define(RSLT_ITEM_COLUMN_NOOP_ASC, "[{\"item\":\"apple\"},{\"item\":\"pear\"},{\"item\":\"potato\"},{\"item\":\"banana\"},{\"item\":\"orange\"}]").
+-define(QRY_ITEM_COLUMN_NOOP_ASC, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  []}, 
+                    {\"order\": \"ascending\" }
+                ] 
+         }").
+
+%%strings come before atoms 
+-define(RSLT_ITEM_COLUMN_NOOP_DESC, "[{\"item\":\"orange\"},{\"item\":\"banana\"},{\"item\":\"potato\"},{\"item\":\"pear\"},{\"item\":\"apple\"}]").
+-define(QRY_ITEM_COLUMN_NOOP_DESC, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  []}, 
+                    {\"order\": \"descending\"}
+                ] 
+         }").
+
+-define(RSLT_ITEM_COLUMN_LT, "[{\"item\":\"potato\"}]").
+-define(QRY_ITEM_COLUMN_LT, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"lt\" : {\"cost\" : 2.2}}]}, 
+                    {\"order\": [] }
+                ] 
+         }").
+
+-define(RSLT_ITEM_COLUMN_LTE, "[{\"item\":\"potato\"},{\"item\":\"apple\"}]").
+-define(QRY_ITEM_COLUMN_LTE, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"lte\" : {\"cost\" : 2.3}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+-define(RSLT_ITEM_COLUMN_GT, "[{\"item\":\"banana\"}]").
+-define(QRY_ITEM_COLUMN_GT, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"gt\" : {\"cost\" : 4}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+-define(RSLT_ITEM_COLUMN_GTE, "[{\"item\":\"orange\"},{\"item\":\"banana\"}]").
+-define(QRY_ITEM_COLUMN_GTE, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"gte\" : {\"cost\" : 3.8}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+-define(RSLT_ITEM_COLUMN_NEQ, "[{\"item\":\"orange\"},{\"item\":\"banana\"},{\"item\":\"potato\"},{\"item\":\"pear\"}]").
+-define(QRY_ITEM_COLUMN_NEQ, 
+	"{ \"query\" :
+                [   {\"columns\" : [\"item\"]}, 
+                    {\"operations\" :  [{\"neq\" : {\"item\" : {\"atom\": \"apple\"} }}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
+grove_mnesia_test_() ->
+    { setup,
+      local,
+      fun mnesia_setup/0,
+      fun mnesia_cleanup/1,
+      fun(_result) ->         
+	      [?_assert(?RSLT_ITEM_COLUMN_ORANGES == grove:post_query("shop", ?QRY_ITEM_COLUMN_ORANGES)),
+	       ?_assert(?RSLT_ALL_COLUMN_ATOM_PEAR == grove:post_query("shop", ?QRY_ALL_COLUMN_ATOM_PEAR)),
+	       ?_assert(?RSLT_ALL_COLUMN_PEAR == grove:post_query("shop", ?QRY_ALL_COLUMN_PEAR)),
+	       ?_assert(?RSLT_ITEM_COLUMN_NOOP_ASC == grove:post_query("shop", ?QRY_ITEM_COLUMN_NOOP_ASC)),
+	       ?_assert(?RSLT_ITEM_COLUMN_NOOP_DESC == grove:post_query("shop", ?QRY_ITEM_COLUMN_NOOP_DESC)),
+	       ?_assert(?RSLT_ITEM_COLUMN_LT == grove:post_query("shop", ?QRY_ITEM_COLUMN_LT)),
+	       ?_assert(?RSLT_ITEM_COLUMN_LTE == grove:post_query("shop", ?QRY_ITEM_COLUMN_LTE)),
+	       ?_assert(?RSLT_ITEM_COLUMN_GT == grove:post_query("shop", ?QRY_ITEM_COLUMN_GT)),
+	       ?_assert(?RSLT_ITEM_COLUMN_GTE == grove:post_query("shop", ?QRY_ITEM_COLUMN_GTE)),
+	       ?_assert(?RSLT_ITEM_COLUMN_NEQ == grove:post_query("shop", ?QRY_ITEM_COLUMN_NEQ))
+	      ]
+      end
+     }.
+
+test_data() ->
+    [
+     {shop, apple,   20,   2.3},
+     {shop, "orange",  150,  3.8},
+     {shop, pear,    200,  3.6},
+     {shop, "banana",  420,  4.5},
+     {shop, potato,  2456, 1.2}
+    ].
+
+test_schema() ->
+    mnesia:create_schema([node()]),
+    mnesia:start(),
+    mnesia:create_table(shop,   [{attributes, record_info(fields, shop)}]),
+    mnesia:stop().
+
+test_start() ->
+    mnesia:start(),
+    grove:start("config/config.txt"),
+    mnesia:wait_for_tables([shop,cost,design], 20000).
+
+test_tables() ->
+    mnesia:clear_table(shop),
+    mnesia:clear_table(cost),
+    F = fun() ->
+		lists:foreach(fun mnesia:write/1, test_data())
+	end,
+    mnesia:transaction(F).
+
+mnesia_setup() ->
+    test_schema(),
+    test_start(),
+    test_tables(),
+    ok.
+
+mnesia_cleanup(_result) ->
+    mnesia:stop(),
+    mnesia:delete_schema(node()),
+    ok.
+
