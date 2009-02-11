@@ -3,8 +3,7 @@
 	 post_query/2,
 	 start/0,
          start/1,
-	 update_config/1,
-	 mnesia_setup/0]).
+	 update_config/1]).
 
 -define(NOTEST, 1).
 -define(ERROR_STATUS, {status, 400}).
