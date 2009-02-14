@@ -284,7 +284,7 @@ test_schema() ->
 
 test_start() ->
     mnesia:start(),
-    update_config("config/config.txt"),
+    update_config("config/grove.conf"),
     mnesia:wait_for_tables([shop], 20000).
 
 test_tables() ->
