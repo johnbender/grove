@@ -106,7 +106,7 @@ use_fdsrv = false
 # in this case, but an explicit IP can be given as well
 
 <server localhost>
-        port = 8000 
+        port = 000 
         listen = 127.0.0.1
         docroot = /opt/local/var/yaws/www
         ###GROVE
