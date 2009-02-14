@@ -14,7 +14,7 @@ ERLCFLAGS = -W -smp
 all: $(BEAMS)
 
 test: ERLCFLAGS += -DTEST
-test: $(BEAMS)
+test: clean $(BEAMS)
 
 %.beam: %.erl
 		$(ERLC) -b beam $(ERLCFLAGS) -I $(INCDIR) -o $(BINDIR) $<

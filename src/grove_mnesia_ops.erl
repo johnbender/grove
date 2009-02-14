@@ -24,7 +24,7 @@ lt([_l, _r] = Ops) ->
 
 %%-----------------------------------------------------------------------------------------------
 %%Function:    lte
-%%Description: returns the string of a qualifier for a check of <= for the left and right 
+%%Description: returns the string of a qualifier for a check of =< for the left and right 
 %%             arguments
 %%-----------------------------------------------------------------------------------------------
 lte(Left, Right) ->

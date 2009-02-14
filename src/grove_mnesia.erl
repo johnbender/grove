@@ -307,8 +307,8 @@ format_operand(Table, Op) ->
     end.
 
 
-%--------UNIT TESTS---------
-
+%--------TESTS---------
+% need to be changed to test generators
 format_query_test() ->
     "[ Foo || Foo <- mnesia:table(foo) ]" = format_query({qry, {table, foo}, {columns, all}, {operations, []}}),
     ?assertException(error, function_clause, format_query({qry, {table, foo}, {columns, all}, {operations, []}, {order, []}})).
