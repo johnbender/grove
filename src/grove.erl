@@ -3,7 +3,8 @@
 	 post_query/2,
 	 start/0,
          start/1,
-	 update_config/1]).
+	 update_config/1
+	]).
 
 -define(NOTEST, 1).
 -define(ERROR_STATUS, {status, 400}).
@@ -147,7 +148,6 @@ read_config() ->
 %%    Integration Tests with Mnesia
 %%-----------------------------------------
 
--record(shop, {item, quantity, cost}).
 
 
 %%All the folowing macros should be usable for integration testing with other adapters, ie MySQL
@@ -264,6 +264,9 @@ grove_mnesia_test_() ->
       end
      }.
 
+
+-record(shop, {item, quantity, cost}).
+
 test_data() ->
     [
      {shop, apple,   20,   2.3},
@@ -281,8 +284,8 @@ test_schema() ->
 
 test_start() ->
     mnesia:start(),
-    grove:start("config/config.txt"),
-    mnesia:wait_for_tables([shop,cost,design], 20000).
+    update_config("config/config.txt"),
+    mnesia:wait_for_tables([shop], 20000).
 
 test_tables() ->
     mnesia:clear_table(shop),
