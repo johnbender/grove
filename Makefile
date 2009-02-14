@@ -11,14 +11,16 @@ ERL       = erl
 ERLC      = erlc
 ERLCFLAGS = -W -smp
 
-all: $(BEAMS)
+all: mkebin $(BEAMS)
 
 test: ERLCFLAGS += -DTEST
-test: clean $(BEAMS)
+test: mkebin clean $(BEAMS)
 
 %.beam: %.erl
 		$(ERLC) -b beam $(ERLCFLAGS) -I $(INCDIR) -o $(BINDIR) $<
 
 clean:
-		rm -rf $(BINDIR)/*.beam		s
+	rm -rf $(BINDIR)/*.beam		s
 
+mkebin:
+	mkdir -p ebin
