@@ -6,7 +6,6 @@
 %%-----------------------------------------------------------------------------------------------
 %%Function:    find/2
 %%Description: finds the given object based on id
-%%             TODO should be moved out to grove_custom or grove_rails
 %%-----------------------------------------------------------------------------------------------
 find(Object, [ID]) ->
     Result = ?ADAPT:run_query({qry, 
