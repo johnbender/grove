@@ -5,6 +5,7 @@
          start/1,
 	 update_config/1
 	]).
+-compile(export_all).
 
 -define(NOTEST, 1).
 -define(ERROR_STATUS, {status, 400}).
@@ -244,6 +245,15 @@ read_config() ->
                 ] 
          }").
 
+-define(RSLT_REVERSE_COLUMN, "[{\"cost\":4.5,\"item\":\"banana\"}]").
+-define(QRY_REVERSE_COLUMN,
+	"{ \"query\" :
+                [   {\"columns\" : [\"cost\" , \"item\"]}, 
+                    {\"operations\" :  [{\"gt\" : {\"cost\" : 4}}]}, 
+                    {\"order\": \"descending\" }
+                ] 
+         }").
+
 grove_mnesia_test_() ->
     { setup,
       local,
@@ -259,7 +269,8 @@ grove_mnesia_test_() ->
 	       ?_assert(?RSLT_ITEM_COLUMN_LTE == grove:post_query("shop", ?QRY_ITEM_COLUMN_LTE)),
 	       ?_assert(?RSLT_ITEM_COLUMN_GT == grove:post_query("shop", ?QRY_ITEM_COLUMN_GT)),
 	       ?_assert(?RSLT_ITEM_COLUMN_GTE == grove:post_query("shop", ?QRY_ITEM_COLUMN_GTE)),
-	       ?_assert(?RSLT_ITEM_COLUMN_NEQ == grove:post_query("shop", ?QRY_ITEM_COLUMN_NEQ))
+	       ?_assert(?RSLT_ITEM_COLUMN_NEQ == grove:post_query("shop", ?QRY_ITEM_COLUMN_NEQ)),
+	       ?_assert(?RSLT_REVERSE_COLUMN == grove:post_query("shop", ?QRY_REVERSE_COLUMN))
 	      ]
       end
      }.
@@ -284,8 +295,8 @@ test_schema() ->
 
 test_start() ->
     mnesia:start(),
-    update_config("config/grove.conf"),
-    mnesia:wait_for_tables([shop], 20000).
+    update_config("config/grove.conf").
+%    mnesia:wait_for_tables([shop], 20000).
 
 test_tables() ->
     mnesia:clear_table(shop),

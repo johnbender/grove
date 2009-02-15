@@ -35,9 +35,8 @@ run_query({qry, {table, Table}, {columns, _columns}, {operations, _ops}, {order,
     Result.
 
 compile_query(ModName, FuncDef, Table) when is_atom(ModName)->
-    AttrList = attribute_names(Table),
     Mod = smerl:new(ModName),
-    {ok, RecAdded} = smerl:add_rec(Mod,record(Table, AttrList)),
+    {ok, RecAdded} = smerl:add_rec(Mod,record(Table)),
     {ok, InclAdded} = smerl:add_incl(RecAdded, ?DEFAULT_QLC_LOCATION, qlc),
     {ok, FuncAdded} = smerl:add_func(InclAdded, FuncDef),
     ok = smerl:compile(FuncAdded).
@@ -193,7 +192,7 @@ format_json(Rows, Table, all) when is_list(Rows), is_list(Table) ->
     json_array(Attributes, Rows);
 
 format_json(Rows, Table, {array, Columns}) when is_list(Rows), is_list(Table) ->
-    Attributes = grove_util:intersection(attribute_names(Table), grove_util:all_lower_strings(Columns)),
+    Attributes = grove_util:intersection(grove_util:all_lower_strings(Columns), attribute_names(Table)),
     json_array(Attributes, Rows).
 
 
@@ -237,15 +236,13 @@ attribute_names(Table) when is_atom(Table) ->
     grove_util:all_lower_strings(Attributes).
 		
 
-record(_table, []) ->
-    throw(invalid_record_attributes);
+record(Table) when is_list(Table)->
+    record(list_to_atom(Table));
 
-record(Table, AttrList) when is_atom(Table), is_list(AttrList) ->
-    record(atom_to_list(Table), AttrList);
-
-record(Table, AttrList) when is_list(AttrList)->
+record(Table) when is_atom(Table)->
+    AttrList = attribute_names(Table),
     grove_util:sfrmt("-record( ~s , { ~s }).", 
-		     [string:to_lower(Table), 
+		     [grove_util:to_lower_string(Table), 
 		      string:join(AttrList, ", ")]).
 
 %%-----------------------------------------------------------------------------------------------
@@ -355,10 +352,10 @@ format_result_struct_test() ->
 attribute_names_test() ->
     ?assertException(exit, _, attribute_names(arbitrary_non_existant_table)).
 
-record_test() ->
-    "-record( test_record , { attribute1 })."= record(test_record, ["attribute1"]),
-    "-record( test_record , { attribute1, attribute2 })."= record("test_record", ["attribute1", "attribute2"]),
-    ?assertException(throw, invalid_record_attributes, record(table, [])).
+%needs to be moved to integration
+%record_test() ->
+%    "-record( test_record , { attribute1 })."= record(test_record, ["attribute1"]),
+%    "-record( test_record , { attribute1, attribute2 })."= record("test_record").
 
 object_exists_test() ->
     false = object_exists(arbitrary_non_existant_table), 
