@@ -13,7 +13,7 @@ ERLCFLAGS = -W -smp
 
 all: mkebin $(BEAMS)
 
-test: ERLCFLAGS += -DTEST
+test: ERLCFLAGS += -DTEST +debug_info
 test: mkebin clean $(BEAMS)
 
 %.beam: %.erl
